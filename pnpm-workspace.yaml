@@ -7,3 +7,6 @@ allowBuilds:
   workerd: true
   sharp: true
   core-js-pure: true
+minimumReleaseAgeExclude:
+  - '@ai-sdk/anthropic@3.0.90'
+  - '@ai-sdk/openai@3.0.78'
