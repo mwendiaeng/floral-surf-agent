@@ -1,1 +1,1 @@
-declare module 'ipaddr.js';
+declare module "ipaddr.js";

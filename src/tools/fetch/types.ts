@@ -1,10 +1,14 @@
 /**
  * fetch/types.ts
  *
- * Shared types for the Fetch subsystem.
- *
- * All other fetch modules should import from here.
+ * Shared types for the fetch subsystem.
  */
+
+import type { ParsedDocument, ParseResult } from "./parser";
+
+/* -------------------------------------------------------------------------- */
+/* HTTP Methods                                                               */
+/* -------------------------------------------------------------------------- */
 
 export type HttpMethod =
   | "GET"
@@ -15,427 +19,699 @@ export type HttpMethod =
   | "HEAD"
   | "OPTIONS";
 
-export type ResponseKind =
-  | "text"
-  | "html"
-  | "markdown"
-  | "json"
-  | "xml"
-  | "rss"
-  | "atom"
-  | "csv"
-  | "yaml"
-  | "pdf"
-  | "image"
-  | "binary"
-  | "unknown";
+/* -------------------------------------------------------------------------- */
+/* Response Type                                                              */
+/* -------------------------------------------------------------------------- */
+
+export type ResponseType = "auto" | "text" | "json" | "arrayBuffer" | "blob" | "stream";
+
+
+// interface FetchContext {
+//     request: Request;
+//     response?: Response;
+//     cache?: CacheEntry;
+//     parsed?: ParsedDocument;
+//     metrics: RequestMetrics;
+//     metadata: Map<string, unknown>;
+// }
+
+/* -------------------------------------------------------------------------- */
+/* Fetch Options                                                              */
+/* -------------------------------------------------------------------------- */
+
+export interface FetchOptions {
+  method?: HttpMethod;
+
+  headers?: HeadersInit;
+
+  body?: BodyInit | null;
+
+  signal?: AbortSignal;
+
+  timeout?: number;
+
+  followRedirects?: boolean;
+
+  maxRedirects?: number;
+
+  responseType?: ResponseType;
+
+  parse?: boolean;
+
+  cache?: boolean;
+
+  retry?: boolean;
+
+  userAgent?: string;
+
+  referrer?: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Fetch Request                                                              */
+/* -------------------------------------------------------------------------- */
 
 export interface FetchRequest {
   url: string;
 
-  method?: HttpMethod;
-
-  headers?: Record<string, string>;
-
-  /**
-   * Query parameters appended to URL.
-   */
-  query?: Record<string, string | number | boolean>;
-
-  /**
-   * JSON, text, FormData, Blob...
-   */
-  body?: BodyInit | object | null;
-
-  timeoutMs?: number;
-
-  maxRedirects?: number;
-
-  maxRetries?: number;
-
-  maxResponseBytes?: number;
-
-  userAgent?: string;
-
-  followRedirects?: boolean;
-
-  allowPrivateNetwork?: boolean;
-
-  cache?: CacheOptions;
-
-  retry?: RetryOptions;
-
-  security?: SecurityPolicy;
-
-  stream?: StreamOptions;
+  options: FetchOptions;
 }
 
-export interface FetchResponse {
+/* -------------------------------------------------------------------------- */
+/* Fetch Response                                                             */
+/* -------------------------------------------------------------------------- */
 
-  ok: boolean;
+export interface FetchResult {
 
-  status: number;
+  request: FetchRequest;
 
-  statusText: string;
+  response: Response;
 
-  url: string;
+  parsed?: ParseResult;
 
-  redirected: boolean;
+  duration: number;
 
-  redirects: string[];
+  fromCache: boolean;
 
-  durationMs: number;
-
-  size: number;
-
-  contentType: string;
-
-  charset?: string;
-
-  encoding?: string;
-
-  headers: Record<string, string>;
-
-  body: string;
-
-  parsed?: ParsedContent;
-
-  metadata?: ResponseMetadata;
+  metrics: FetchMetrics;
 }
 
-export interface ResponseMetadata {
+/* -------------------------------------------------------------------------- */
+/* Error                                                                      */
+/* -------------------------------------------------------------------------- */
 
-  fetchedAt: Date;
+export interface FetchError {
+  code: string;
+
+  message: string;
+
+  status?: number;
+
+  cause?: unknown;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Progress                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export interface FetchProgress {
+  loaded: number;
+
+  total?: number;
+
+  percentage?: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Timing                                                                     */
+/* -------------------------------------------------------------------------- */
+
+export interface FetchTiming {
+  startedAt: number;
+
+  endedAt: number;
+
+  duration: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cache                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export interface CacheEntry<T = unknown> {
+  key: string;
+
+  value: T;
+
+  createdAt: number;
+
+  expiresAt?: number;
 
   etag?: string;
 
   lastModified?: string;
 
-  cacheControl?: string;
+  contentType?: string;
 
-  expires?: string;
-
-  server?: string;
-
-  via?: string;
-}
-
-interface ParsedContent {
-
-    type: ResponseKind;
-
-    title?: string;
-
-    description?: string;
-
-    language?: string;
-
-    author?: string;
-
-    published?: Date;
-
-    summary?: string;
-
-    text?: string;
-
-    markdown?: string;
-
-    html?: string;
-
-    json?: unknown;
-
-    links?: ExtractedLink[];
-
-    images?: ExtractedImage[];
-
-    tables?: ParsedTable[];
-
-    headings?: Heading[];
-
-    codeBlocks?: CodeBlock[];
-
-    metadata?: Record<string, unknown>;
-
-    chunks?: ParsedChunk[];
-
-    keywords?: string[];
-
-}
-
-export interface ParsedChunk {
-
-  type: "text" | "heading" | "link" | "image" | "code" | "table";
-
-  content: string;
+  size?: number;
 
   metadata?: Record<string, unknown>;
 }
 
-export interface Heading {
-
-  level: number;
-
-  text: string;
-
-  id?: string;
-}
-
-export interface CodeBlock {
-
-  language?: string;
-
-  code: string;
-}
-
-export interface ParsedTable {
-
-  headers: string[];
-
-  rows: string[][];
-}
-
-export interface ExtractedLink {
-
-  href: string;
-
-  text: string;
-
-  rel?: string;
-
-  title?: string;
-
-  internal: boolean;
-}
-
-export interface ExtractedImage {
-
-  src: string;
-
-  alt?: string;
-
-  width?: number;
-
-  height?: number;
-}
-
-export interface RetryOptions {
-
-  enabled?: boolean;
-
-  maxAttempts?: number;
-
-  initialDelayMs?: number;
-
-  maxDelayMs?: number;
-
-  multiplier?: number;
-
-  retryOnStatus?: number[];
-
-  retryOnNetworkError?: boolean;
-}
+/* -------------------------------------------------------------------------- */
+/* Cache Options                                                              */
+/* -------------------------------------------------------------------------- */
 
 export interface CacheOptions {
-
   enabled?: boolean;
 
-  ttlSeconds?: number;
-
-  namespace?: string;
-
-  useETag?: boolean;
-
-  useLastModified?: boolean;
-
-  revalidate?: boolean;
-
-  staleWhileRevalidate?: boolean;
+  ttl?: number;
 
   maxEntries?: number;
 
+  maxSizeBytes?: number;
+
+  revalidate?: boolean;
+
+  respectCacheControl?: boolean;
+
+  respectETag?: boolean;
+
+  respectLastModified?: boolean;
 }
 
-export interface StreamOptions {
+/* -------------------------------------------------------------------------- */
+/* Retry                                                                      */
+/* -------------------------------------------------------------------------- */
 
+export interface RetryOptions {
+  enabled?: boolean;
+
+  retries?: number;
+
+  initialDelay?: number;
+
+  maxDelay?: number;
+
+  factor?: number;
+
+  jitter?: boolean;
+
+  retryOn?: number[];
+
+  retryMethods?: HttpMethod[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Retry Context                                                              */
+/* -------------------------------------------------------------------------- */
+
+export interface RetryContext {
+  attempt: number;
+
+  maxAttempts: number;
+
+  delay: number;
+
+  lastError?: unknown;
+
+  lastStatus?: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Stream                                                                     */
+/* -------------------------------------------------------------------------- */
+
+export interface StreamOptions {
   enabled?: boolean;
 
   chunkSize?: number;
 
-  onChunk?: (chunk: Uint8Array) => Promise<void> | void;
+  highWaterMark?: number;
+
+  maxBytes?: number;
+
+  emitProgress?: boolean;
 }
 
-export interface SecurityPolicy {
-  allowedHosts?: string[];
+/* -------------------------------------------------------------------------- */
+/* Download Progress                                                          */
+/* -------------------------------------------------------------------------- */
 
-  blockedHosts?: string[];
+export interface DownloadProgress {
+  receivedBytes: number;
 
-  allowedPorts?: number[];
+  totalBytes?: number;
 
-  blockedPorts?: number[];
+  percentage?: number;
 
-  allowedProtocols?: ("http" | "https")[];
+  chunks: number;
+
+  elapsed: number;
+
+  bytesPerSecond?: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Upload Progress                                                            */
+/* -------------------------------------------------------------------------- */
+
+export interface UploadProgress {
+  uploadedBytes: number;
+
+  totalBytes?: number;
+
+  percentage?: number;
+
+  elapsed: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Transfer Statistics                                                        */
+/* -------------------------------------------------------------------------- */
+
+export interface TransferStatistics {
+  requestBytes: number;
+
+  responseBytes: number;
+
+  compressionRatio?: number;
+
+  duration: number;
+
+  averageSpeed?: number;
+}
+/* -------------------------------------------------------------------------- */
+/* Security                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export interface SecurityOptions {
+  enabled?: boolean;
+
+  allowPrivateNetworks?: boolean;
 
   allowLocalhost?: boolean;
 
-  allowPrivateIPs?: boolean;
+  allowFileUrls?: boolean;
 
-  allowIPv6?: boolean;
+  allowDataUrls?: boolean;
 
-  validateTLS?: boolean;
+  allowInsecureTls?: boolean;
+
+  maxContentLength?: number;
 
   maxRedirects?: number;
 
-  maxHostnameLength?: number;
+  allowedProtocols?: string[];
 
-  maxUrlLength?: number;
+  blockedHosts?: string[];
+
+  allowedHosts?: string[];
+
+  validateCertificates?: boolean;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Security Result                                                            */
+/* -------------------------------------------------------------------------- */
+
+export interface SecurityResult {
+  allowed: boolean;
+
+  reason?: string;
+
+  warnings: string[];
+
+  violations: string[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Robots                                                                     */
+/* -------------------------------------------------------------------------- */
+
+export interface RobotsOptions {
+  enabled?: boolean;
+
+  respectRobotsTxt?: boolean;
+
+  userAgent?: string;
+
+  discoverSitemaps?: boolean;
+
+  crawlDelay?: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Robots Rule                                                                */
+/* -------------------------------------------------------------------------- */
 
 export interface RobotsRule {
-  allowed: boolean;
-  crawlDelay?: number;
-  matchedRule?: string;
-}
+  userAgent: string;
 
-export interface RobotsFile {
-  url: string;
-  fetchedAt: Date;
-  sitemaps: string[];
-  groups: RobotsGroup[];
-}
-
-export interface RobotsGroup {
-  userAgents: string[];
   allow: string[];
+
   disallow: string[];
+
   crawlDelay?: number;
+
+  sitemaps: string[];
 }
 
-export interface ReadabilityResult {
+/* -------------------------------------------------------------------------- */
+/* Parser                                                                     */
+/* -------------------------------------------------------------------------- */
 
-    title: string;
+export interface ParserOptions {
+  enabled?: boolean;
 
-    byline: string;
+  readableOnly?: boolean;
 
-    excerpt: string;
+  markdown?: boolean;
 
-    language: string;
+  preserveHtml?: boolean;
 
-    content: string;
+  chunk?: boolean;
 
-    markdown: string;
+  extractMetadata?: boolean;
 
-    textContent: string;
+  extractSchema?: boolean;
 
-    length: number;
+  extractLinks?: boolean;
 
-    wordCount: number;
-
-    readingTimeMinutes: number;
-
+  extractImages?: boolean;
 }
 
-export interface PdfExtractionResult {
+/* -------------------------------------------------------------------------- */
+/* Events                                                                     */
+/* -------------------------------------------------------------------------- */
 
-  pages: number;
+export type FetchEventType =
+  | "request"
+  | "response"
+  | "retry"
+  | "redirect"
+  | "cache-hit"
+  | "cache-miss"
+  | "stream"
+  | "progress"
+  | "parse"
+  | "complete"
+  | "error";
 
-  title?: string;
+/* -------------------------------------------------------------------------- */
+/* Fetch Event                                                                */
+/* -------------------------------------------------------------------------- */
 
-  author?: string;
+export interface FetchEvent {
+  type: FetchEventType;
 
-  subject?: string;
+  timestamp: number;
 
-  creator?: string;
+  url?: string;
 
-  producer?: string;
+  message?: string;
 
-  createdAt?: Date;
-
-  modifiedAt?: Date;
-
-  text: string;
+  data?: unknown;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Event Hooks                                                                */
+/* -------------------------------------------------------------------------- */
+
+export interface FetchHooks {
+  beforeRequest?(request: FetchRequest): Promise<void> | void;
+
+  afterResponse?(response: Response): Promise<void> | void;
+
+  beforeParse?(response: Response): Promise<void> | void;
+
+  afterParse?(result: ParseResult): Promise<void> | void;
+
+  onRetry?(context: RetryContext): Promise<void> | void;
+
+  onProgress?(progress: DownloadProgress): Promise<void> | void;
+
+  onError?(error: FetchError): Promise<void> | void;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Middleware                                                                 */
+/* -------------------------------------------------------------------------- */
+
+export interface FetchMiddleware {
+  name: string;
+
+  priority?: number;
+
+  execute(
+    request: FetchRequest,
+
+    next: () => Promise<FetchResult>
+  ): Promise<FetchResult>;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Metrics                                                                    */
+/* -------------------------------------------------------------------------- */
 
 export interface FetchMetrics {
+  requests: number;
 
-  dnsLookupMs?: number;
+  successfulRequests: number;
 
-  tcpConnectMs?: number;
+  failedRequests: number;
 
-  tlsHandshakeMs?: number;
+  cacheHits: number;
 
-  requestMs?: number;
+  cacheMisses: number;
 
-  firstByteMs?: number;
+  retries: number;
 
-  downloadMs?: number;
+  redirects: number;
 
-  totalMs: number;
+  bytesDownloaded: number;
+
+  bytesUploaded: number;
+
+  averageResponseTime: number;
+
+  minResponseTime: number;
+
+  maxResponseTime: number;
+
+  totalResponseTime: number;
 }
 
-export interface CachedResponse {
+/* -------------------------------------------------------------------------- */
+/* Plugins                                                                    */
+/* -------------------------------------------------------------------------- */
 
-  key: string;
+export interface FetchPlugin {
+  readonly name: string;
 
-  expiresAt: Date;
+  readonly version?: string;
 
-  response: FetchResponse;
+  initialize?(): Promise<void> | void;
+
+  destroy?(): Promise<void> | void;
+
+  middleware?(): FetchMiddleware;
 }
 
-export enum FetchErrorCode {
+/* -------------------------------------------------------------------------- */
+/* Pipeline                                                                    */
+/* -------------------------------------------------------------------------- */
 
-  INVALID_URL = "INVALID_URL",
-
-  BLOCKED_HOST = "BLOCKED_HOST",
-
-  PRIVATE_NETWORK = "PRIVATE_NETWORK",
-
-  TIMEOUT = "TIMEOUT",
-
-  NETWORK_ERROR = "NETWORK_ERROR",
-
-  RESPONSE_TOO_LARGE = "RESPONSE_TOO_LARGE",
-
-  INVALID_CONTENT = "INVALID_CONTENT",
-
-  TOO_MANY_REDIRECTS = "TOO_MANY_REDIRECTS",
-
-  ROBOTS_DISALLOWED = "ROBOTS_DISALLOWED",
-
-  PARSER_ERROR = "PARSER_ERROR",
-
-  PDF_ERROR = "PDF_ERROR",
-
-  UNKNOWN = "UNKNOWN",
+export interface FetchPipeline {
+  execute(request: FetchRequest): Promise<FetchResult>;
 }
 
-export class FetchError extends Error {
+/* -------------------------------------------------------------------------- */
+/* Client                                                                      */
+/* -------------------------------------------------------------------------- */
 
-  constructor(
-    public readonly code: FetchErrorCode,
-    message: string,
-    public readonly cause?: unknown
-  ) {
-    super(message);
-    this.name = "FetchError";
+export interface FetchClient {
+  fetch(
+    url: string,
+
+    options?: FetchOptions
+  ): Promise<FetchResult>;
+
+  registerPlugin(plugin: FetchPlugin): void;
+
+  unregisterPlugin(name: string): void;
+
+  clearPlugins(): void;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Configuration                                                               */
+/* -------------------------------------------------------------------------- */
+
+export interface FetchConfiguration {
+  fetch: FetchOptions;
+
+  retry: RetryOptions;
+
+  cache: CacheOptions;
+
+  parser: ParserOptions;
+
+  security: SecurityOptions;
+
+  robots: RobotsOptions;
+
+  stream: StreamOptions;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Constants                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export const DEFAULT_FETCH_CONFIGURATION: FetchConfiguration = {
+  fetch: {
+    method: "GET",
+
+    timeout: 30000,
+
+    followRedirects: true,
+
+    maxRedirects: 10,
+
+    responseType: "auto",
+
+    parse: true,
+
+    cache: true,
+
+    retry: true
+  },
+
+  retry: {
+    enabled: true,
+
+    retries: 3,
+
+    initialDelay: 500,
+
+    maxDelay: 5000,
+
+    factor: 2,
+
+    jitter: true,
+
+    retryOn: [
+      408,
+
+      425,
+
+      429,
+
+      500,
+
+      502,
+
+      503,
+
+      504
+    ],
+
+    retryMethods: [
+      "GET",
+
+      "HEAD",
+
+      "OPTIONS"
+    ]
+  },
+
+  cache: {
+    enabled: true,
+
+    ttl: 300000,
+
+    maxEntries: 1000,
+
+    maxSizeBytes: 100 * 1024 * 1024,
+
+    revalidate: true,
+
+    respectCacheControl: true,
+
+    respectETag: true,
+
+    respectLastModified: true
+  },
+
+  parser: {
+    enabled: true,
+
+    readableOnly: false,
+
+    markdown: true,
+
+    preserveHtml: false,
+
+    chunk: true,
+
+    extractMetadata: true,
+
+    extractSchema: true,
+
+    extractLinks: true,
+
+    extractImages: true
+  },
+
+  security: {
+    enabled: true,
+
+    allowPrivateNetworks: false,
+
+    allowLocalhost: false,
+
+    allowFileUrls: false,
+
+    allowDataUrls: false,
+
+    allowInsecureTls: false,
+
+    validateCertificates: true,
+
+    maxContentLength: 50 * 1024 * 1024,
+
+    maxRedirects: 10,
+
+    allowedProtocols: [
+      "http",
+
+      "https"
+    ],
+
+    blockedHosts: [],
+
+    allowedHosts: []
+  },
+
+  robots: {
+    enabled: true,
+
+    respectRobotsTxt: true,
+
+    discoverSitemaps: true,
+
+    crawlDelay: true,
+
+    userAgent: "FloralSurfBot/1.0"
+  },
+
+  stream: {
+    enabled: true,
+
+    chunkSize: 64 * 1024,
+
+    highWaterMark: 16,
+
+    emitProgress: true
   }
-}
-
-export const DEFAULT_TIMEOUT_MS = 30_000;
-
-export const DEFAULT_MAX_RESPONSE_BYTES = 25 * 1024 * 1024;
-
-export const DEFAULT_MAX_REDIRECTS = 10;
-
-export const DEFAULT_USER_AGENT =
-  "Cloudflare-Agent/1.0";
-
-export const DEFAULT_RETRY_OPTIONS: RetryOptions = {
-  enabled: true,
-  maxAttempts: 3,
-  initialDelayMs: 250,
-  maxDelayMs: 5_000,
-  multiplier: 2,
-  retryOnNetworkError: true,
-  retryOnStatus: [429, 500, 502, 503, 504],
 };
 
+/* -------------------------------------------------------------------------- */
+/* Service                                                                     */
+/* -------------------------------------------------------------------------- */
+
+export interface FetchService extends FetchClient {
+  readonly configuration: FetchConfiguration;
+
+  readonly metrics: FetchMetrics;
+
+  resetMetrics(): void;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Export Bundle                                                               */
+/* -------------------------------------------------------------------------- */
+
+export default {
+  DEFAULT_FETCH_CONFIGURATION
+};
