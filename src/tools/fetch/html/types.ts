@@ -1,36 +1,93 @@
 /**
  * html/types.ts
  *
- * Types used by the HTML parser subsystem.
+ * Shared types for the HTML parsing subsystem.
  */
 
-import type {
-  CodeBlock,
-  ExtractedImage,
-  ExtractedLink,
-  Heading,
-  ParsedTable,
-} from "../types";
+/* -------------------------------------------------------------------------- */
+/*                               Shared Extracted Types                       */
+/* -------------------------------------------------------------------------- */
+
+export interface ExtractedLink {
+  href: string;
+
+  text: string;
+
+  title?: string;
+
+  rel?: string;
+
+  target?: string;
+
+  download?: boolean;
+
+  noFollow?: boolean;
+
+  external: boolean;
+
+  internal: boolean;
+
+  anchor: boolean;
+}
+
+export interface ExtractedImage {
+  src: string;
+
+  alt?: string;
+
+  width?: number;
+
+  height?: number;
+
+  loading?: string;
+
+  decoding?: string;
+}
+
+export interface Heading {
+  id: string;
+
+  level: number;
+
+  text: string;
+}
+
+export interface CodeBlock {
+  language?: string;
+
+  code: string;
+}
+
+export interface ParsedTable {
+  headers: string[];
+
+  rows: string[][];
+
+  caption?: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               Parser Options                               */
+/* -------------------------------------------------------------------------- */
 
 export interface HtmlParseOptions {
   /**
-   * Enable Mozilla Readability extraction.
-   * Default: true
+   * Enable Mozilla Readability.
    */
   readability?: boolean;
 
   /**
-   * Convert cleaned HTML to Markdown.
+   * Convert HTML → Markdown.
    */
   markdown?: boolean;
 
   /**
-   * Remove scripts/styles/comments.
+   * Clean DOM before extraction.
    */
   sanitize?: boolean;
 
   /**
-   * Extract Schema.org metadata.
+   * Extract Schema.org.
    */
   schema?: boolean;
 
@@ -40,7 +97,7 @@ export interface HtmlParseOptions {
   openGraph?: boolean;
 
   /**
-   * Extract Twitter Card metadata.
+   * Extract Twitter Cards.
    */
   twitterCards?: boolean;
 
@@ -60,32 +117,32 @@ export interface HtmlParseOptions {
   images?: boolean;
 
   /**
-   * Extract links.
+   * Extract hyperlinks.
    */
   links?: boolean;
 
   /**
-   * Extract forms.
+   * Extract HTML forms.
    */
   forms?: boolean;
 
   /**
-   * Extract code blocks.
+   * Extract fenced code blocks.
    */
   codeBlocks?: boolean;
 
   /**
-   * Generate semantic sections.
+   * Build semantic sections.
    */
   sections?: boolean;
 
   /**
-   * Generate TOC.
+   * Build Table of Contents.
    */
   toc?: boolean;
 
   /**
-   * Chunk output.
+   * Generate semantic chunks.
    */
   chunking?: boolean;
 
@@ -95,25 +152,70 @@ export interface HtmlParseOptions {
   preserveHtml?: boolean;
 }
 
+/* -------------------------------------------------------------------------- */
+/*                             Fingerprinting                                 */
+/* -------------------------------------------------------------------------- */
+
+export interface HtmlFingerprint {
+  /**
+   * Stable document identifier.
+   */
+  document: string;
+
+  /**
+   * Plain text fingerprint.
+   */
+  content: string;
+
+  /**
+   * Markdown fingerprint.
+   */
+  markdown: string;
+
+  /**
+   * Clean HTML fingerprint.
+   */
+  html: string;
+
+  /**
+   * DOM structure fingerprint.
+   */
+  dom: string;
+
+  /**
+   * Metadata fingerprint.
+   */
+  metadata: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               HTML Document                                */
+/* -------------------------------------------------------------------------- */
+
 export interface HtmlDocument {
+  /* ---------------------------- Source Info ---------------------------- */
 
   url?: string;
 
-  title?: string;
-
-  description?: string;
+  canonical?: string;
 
   language?: string;
 
   charset?: string;
 
-  canonical?: string;
+  /* ----------------------------- Metadata ----------------------------- */
 
-  favicon?: string;
+  title?: string;
+
+  description?: string;
 
   author?: string;
 
   siteName?: string;
+
+  favicon?: string;
+
+  /* ------------------------------ Content ----------------------------- */
 
   html: string;
 
@@ -122,6 +224,8 @@ export interface HtmlDocument {
   markdown?: string;
 
   text: string;
+
+  /* ----------------------------- Parsed ------------------------------- */
 
   metadata: HtmlMetadata;
 
@@ -143,23 +247,24 @@ export interface HtmlDocument {
 
   schema: SchemaOrgData[];
 
-  jsonLd: unknown[];
+  jsonLd: JsonLdDocument[];
+
+  /* -------------------------- Analytics ------------------------------- */
 
   statistics: HtmlStatistics;
 
+  fingerprint: HtmlFingerprint;
 }
+/* -------------------------------------------------------------------------- */
+/*                               Metadata                                     */
+/* -------------------------------------------------------------------------- */
 
 export interface HtmlMetadata {
-
   title?: string;
 
   description?: string;
 
   keywords?: string[];
-
-  robots?: string;
-
-  generator?: string;
 
   author?: string;
 
@@ -169,11 +274,15 @@ export interface HtmlMetadata {
 
   charset?: string;
 
-  viewport?: string;
-
   canonical?: string;
 
   favicon?: string;
+
+  robots?: string;
+
+  generator?: string;
+
+  viewport?: string;
 
   themeColor?: string;
 
@@ -181,12 +290,25 @@ export interface HtmlMetadata {
 
   twitter?: TwitterCardMetadata;
 
+  /**
+   * Any additional meta tags that don't have
+   * first-class properties.
+   */
   custom: Record<string, string>;
 
+  /**
+   * JSON-LD object or raw string for schema markup
+   */
+  schema?: SchemaOrgData[];
+
+  siteName?: string;
 }
 
-export interface OpenGraphMetadata {
+/* -------------------------------------------------------------------------- */
+/*                              Open Graph                                    */
+/* -------------------------------------------------------------------------- */
 
+export interface OpenGraphMetadata {
   title?: string;
 
   description?: string;
@@ -201,10 +323,16 @@ export interface OpenGraphMetadata {
 
   locale?: string;
 
+  audio?: string;
+
+  video?: string;
 }
 
-export interface TwitterCardMetadata {
+/* -------------------------------------------------------------------------- */
+/*                             Twitter Cards                                  */
+/* -------------------------------------------------------------------------- */
 
+export interface TwitterCardMetadata {
   card?: string;
 
   title?: string;
@@ -216,49 +344,73 @@ export interface TwitterCardMetadata {
   site?: string;
 
   creator?: string;
-
 }
 
+/* -------------------------------------------------------------------------- */
+/*                                  Images                                    */
+/* -------------------------------------------------------------------------- */
+
 export interface HtmlImage extends ExtractedImage {
+  width?: number;
+
+  height?: number;
 
   loading?: string;
 
   decoding?: string;
 
+  title?: string;
+
   caption?: string;
 
   figure?: boolean;
-
 }
 
-export interface HtmlForm {
+/* -------------------------------------------------------------------------- */
+/*                                   Forms                                    */
+/* -------------------------------------------------------------------------- */
 
+export interface HtmlForm {
   action?: string;
 
   method?: string;
 
   enctype?: string;
 
-  inputs: HtmlInput[];
+  id?: string;
 
+  name?: string;
+
+  autocomplete?: string;
+
+  inputs: HtmlInput[];
 }
 
 export interface HtmlInput {
-
   name?: string;
 
   type?: string;
 
   value?: string;
 
-  required?: boolean;
+  label?: string;
 
   placeholder?: string;
 
+  required?: boolean;
+
+  disabled?: boolean;
+
+  readonly?: boolean;
+
+  checked?: boolean;
 }
 
-export interface HtmlSection {
+/* -------------------------------------------------------------------------- */
+/*                                Sections                                    */
+/* -------------------------------------------------------------------------- */
 
+export interface HtmlSection {
   id: string;
 
   heading?: string;
@@ -275,33 +427,67 @@ export interface HtmlSection {
 
   endOffset: number;
 
+  tokenEstimate?: number;
+
+  fingerprint?: string;
 }
 
-export interface TableOfContents {
+/* -------------------------------------------------------------------------- */
+/*                            Table Of Contents                               */
+/* -------------------------------------------------------------------------- */
 
+export interface TableOfContents {
   items: TocItem[];
 
+  maxDepth: number;
+
+  totalItems: number;
 }
 
 export interface TocItem {
-
   id?: string;
 
   level: number;
 
   title: string;
 
-  children: TocItem[];
+  anchor?: string;
 
+  index: number;
+
+  children: TocItem[];
 }
 
+/* -------------------------------------------------------------------------- */
+/*                              Statistics                                    */
+/* -------------------------------------------------------------------------- */
+
 export interface HtmlStatistics {
+  /* ---------- Text ---------- */
 
   words: number;
 
-  characters: number;
+  uniqueWords: number;
+
+  sentences: number;
 
   paragraphs: number;
+
+  characters: number;
+
+  averageWordLength: number;
+
+  averageSentenceLength: number;
+
+  averageParagraphLength: number;
+
+  longestWord: string;
+
+  estimatedReadingTimeMinutes: number;
+
+  lexicalDensity: number;
+
+  /* ---------- Structure ---------- */
 
   headings: number;
 
@@ -311,34 +497,54 @@ export interface HtmlStatistics {
 
   tables: number;
 
-  codeBlocks: number;
-
   forms: number;
 
-  estimatedReadingTimeMinutes: number;
+  codeBlocks: number;
 
+  sectionCount: number;
+
+  tocDepth: number;
+
+  /* ---------- Density ---------- */
+
+  imageDensity: number;
+
+  linkDensity: number;
+
+  tableDensity: number;
+
+  /* ---------- Presence ---------- */
+
+  hasImages: boolean;
+
+  hasTables: boolean;
+
+  hasForms: boolean;
+
+  hasCodeBlocks: boolean;
+
+  hasJsonLd: boolean;
+
+  empty: boolean;
+
+  /* ---------- Fingerprints ---------- */
+
+  contentHash?: string;
+
+  markdownHash?: string;
+
+  htmlHash?: string;
+
+  metadataHash?: string;
+
+  domHash?: string;
 }
 
-export interface SchemaOrgData {
-
-  type: string;
-
-  properties: Record<string, unknown>;
-
-}
-
-export interface JsonLdDocument {
-
-  context?: string;
-
-  type?: string;
-
-  data: Record<string, unknown>;
-
-}
+/* -------------------------------------------------------------------------- */
+/*                          Semantic Chunk                                    */
+/* -------------------------------------------------------------------------- */
 
 export interface SemanticChunk {
-
   id: string;
 
   heading?: string;
@@ -347,14 +553,26 @@ export interface SemanticChunk {
 
   markdown: string;
 
+  html?: string;
+
   text: string;
+
+  startOffset: number;
+
+  endOffset: number;
 
   tokenEstimate: number;
 
+  fingerprint?: string;
+
+  metadata?: Record<string, unknown>;
 }
 
-export interface ExtractionResult<T> {
+/* -------------------------------------------------------------------------- */
+/*                           Extraction Result                                */
+/* -------------------------------------------------------------------------- */
 
+export interface ExtractionResult<T> {
   success: boolean;
 
   data: T;
@@ -363,20 +581,218 @@ export interface ExtractionResult<T> {
 
   errors: string[];
 
+  durationMs?: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              Plugin API                                    */
+/* -------------------------------------------------------------------------- */
+
+export interface HtmlParserPlugin {
+  /**
+   * Unique plugin name.
+   */
+  name: string;
+
+  /**
+   * Execution priority.
+   *
+   * Lower runs first.
+   */
+  priority?: number;
+
+  /**
+   * Determine if the plugin should execute.
+   */
+  supports(document: HtmlDocument): boolean;
+
+  /**
+   * Transform parsed document.
+   */
+  transform(document: HtmlDocument): Promise<void> | void;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              Schema.org                                    */
+/* -------------------------------------------------------------------------- */
+
+export interface SchemaOrgData {
+  /**
+   * Schema.org @type
+   */
+  type: string;
+
+  /**
+   * Raw Schema.org object.
+   */
+  properties: Record<string, unknown>;
+
+  schema?: SchemaOrgData[];
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              JSON-LD                                       */
+/* -------------------------------------------------------------------------- */
+
+export interface JsonLdDocument {
+  context?: string;
+
+  type?: string;
+
+  id?: string;
+
+  graph?: Record<string, unknown>[];
+
+  data: Record<string, unknown>;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               Assets                                       */
+/* -------------------------------------------------------------------------- */
+
+export type HtmlAssetType =
+  | "image"
+  | "video"
+  | "audio"
+  | "stylesheet"
+  | "script"
+  | "font"
+  | "document"
+  | "other";
+
+export interface HtmlAsset {
+  type: HtmlAssetType;
+
+  url: string;
+
+  mimeType?: string;
+
+  size?: number;
+
+  integrity?: string;
+
+  crossorigin?: string;
+
+  referrerPolicy?: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                Links                                       */
+/* -------------------------------------------------------------------------- */
+
+export interface HtmlLink {
+  href: string;
+
+  text: string;
+
+  title?: string;
+
+  rel?: string;
+
+  target?: string;
+
+  download?: boolean;
+
+  noFollow?: boolean;
+
+  external: boolean;
+
+  internal: boolean;
+
+  anchor: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                           Document Language                                */
+/* -------------------------------------------------------------------------- */
+
+export interface DocumentLanguage {
+  code: string;
+
+  confidence: number;
+
+  detectedBy: "html" | "meta" | "content" | "unknown";
+}
+
+/* -------------------------------------------------------------------------- */
+/*                           Parser Context                                   */
+/* -------------------------------------------------------------------------- */
+
+export interface ParserContext {
+  url?: string;
+
+  contentType?: string;
+
+  fetchedAt?: Date;
+
+  encoding?: string;
+
+  source?: "fetch" | "browser" | "cache" | "memory";
+}
+
+/* -------------------------------------------------------------------------- */
+/*                             Parser Metrics                                 */
+/* -------------------------------------------------------------------------- */
+
+export interface ParserMetrics {
+  parseTimeMs: number;
+
+  cleanupTimeMs: number;
+
+  metadataTimeMs: number;
+
+  extractionTimeMs: number;
+
+  statisticsTimeMs: number;
+
+  fingerprintTimeMs: number;
+
+  totalTimeMs: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                             Parser Result                                  */
+/* -------------------------------------------------------------------------- */
+
+export interface HtmlParserResult {
+  document: HtmlDocument;
+
+  metrics: ParserMetrics;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                           Parser Plugin Context                            */
+/* -------------------------------------------------------------------------- */
+
+export interface HtmlParserPluginContext {
+  parserVersion: string;
+
+  options: HtmlParseOptions;
+
+  metrics: ParserMetrics;
 }
 
 export interface HtmlParserPlugin {
-
+  /**
+   * Unique plugin identifier.
+   */
   name: string;
 
+  /**
+   * Lower numbers execute first.
+   */
   priority?: number;
 
-  supports(
-    document: HtmlDocument
-  ): boolean;
+  /**
+   * Determine if this plugin should execute.
+   */
+  supports(document: HtmlDocument): boolean;
 
+  /**
+   * Modify the parsed document.
+   */
   transform(
-    document: HtmlDocument
+    document: HtmlDocument,
+    context: HtmlParserPluginContext
   ): Promise<void> | void;
-
 }

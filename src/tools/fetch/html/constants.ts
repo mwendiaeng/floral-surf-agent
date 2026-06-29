@@ -2,15 +2,12 @@
  * html/constants.ts
  *
  * Shared constants for the HTML parser subsystem.
- *
- * Every parser module should import from here instead of hardcoding
- * strings throughout the codebase.
  */
 
 import type { HtmlParseOptions } from "./types";
 
 /* -------------------------------------------------------------------------- */
-/*                                   Tags                                     */
+/*                               HTML Elements                                */
 /* -------------------------------------------------------------------------- */
 
 export const HTML_TAGS = Object.freeze({
@@ -24,6 +21,8 @@ export const HTML_TAGS = Object.freeze({
 
   LINK: "link",
 
+  BASE: "base",
+
   SCRIPT: "script",
 
   STYLE: "style",
@@ -31,6 +30,8 @@ export const HTML_TAGS = Object.freeze({
   NOSCRIPT: "noscript",
 
   TEMPLATE: "template",
+
+  SLOT: "slot",
 
   HEADER: "header",
 
@@ -53,27 +54,18 @@ export const HTML_TAGS = Object.freeze({
   P: "p",
 
   H1: "h1",
-
   H2: "h2",
-
   H3: "h3",
-
   H4: "h4",
-
   H5: "h5",
-
   H6: "h6",
 
   UL: "ul",
-
   OL: "ol",
-
   LI: "li",
 
   DL: "dl",
-
   DT: "dt",
-
   DD: "dd",
 
   PRE: "pre",
@@ -102,13 +94,23 @@ export const HTML_TAGS = Object.freeze({
 
   IMG: "img",
 
+  PICTURE: "picture",
+
+  SOURCE: "source",
+
   SVG: "svg",
 
   VIDEO: "video",
 
   AUDIO: "audio",
 
+  TRACK: "track",
+
   IFRAME: "iframe",
+
+  OBJECT: "object",
+
+  EMBED: "embed",
 
   A: "a",
 
@@ -134,21 +136,14 @@ export const HTML_TAGS = Object.freeze({
 
   ADDRESS: "address",
 
-  CANVAS: "canvas",
+  CANVAS: "canvas"
 });
 
 /* -------------------------------------------------------------------------- */
-/*                            Common Tag Collections                          */
+/*                              Tag Collections                               */
 /* -------------------------------------------------------------------------- */
 
-export const HEADING_TAGS = Object.freeze([
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-]);
+export const HEADING_TAGS = Object.freeze(["h1", "h2", "h3", "h4", "h5", "h6"]);
 
 export const TEXT_BLOCK_TAGS = Object.freeze([
   "p",
@@ -158,13 +153,15 @@ export const TEXT_BLOCK_TAGS = Object.freeze([
   "td",
   "th",
   "dd",
+  "article",
+  "section"
 ]);
 
 export const SECTION_TAGS = Object.freeze([
   "article",
   "section",
   "main",
-  "aside",
+  "aside"
 ]);
 
 export const TABLE_TAGS = Object.freeze([
@@ -174,16 +171,17 @@ export const TABLE_TAGS = Object.freeze([
   "tfoot",
   "tr",
   "td",
-  "th",
+  "th"
 ]);
 
 export const MEDIA_TAGS = Object.freeze([
   "img",
-  "video",
-  "audio",
   "picture",
   "source",
+  "video",
+  "audio",
   "svg",
+  "canvas"
 ]);
 
 export const FORM_TAGS = Object.freeze([
@@ -192,11 +190,11 @@ export const FORM_TAGS = Object.freeze([
   "textarea",
   "select",
   "button",
-  "label",
+  "label"
 ]);
 
 /* -------------------------------------------------------------------------- */
-/*                           Elements Removed During Cleanup                  */
+/*                          Cleanup Configuration                             */
 /* -------------------------------------------------------------------------- */
 
 export const REMOVE_TAGS = Object.freeze([
@@ -205,19 +203,51 @@ export const REMOVE_TAGS = Object.freeze([
   "noscript",
   "template",
   "iframe",
-  "canvas",
-  "svg",
+  "canvas"
 ]);
 
 export const BOILERPLATE_TAGS = Object.freeze([
   "header",
   "footer",
   "nav",
-  "aside",
+  "aside"
+]);
+
+export const PRESERVE_WHITESPACE_TAGS = Object.freeze([
+  "pre",
+  "code",
+  "textarea"
+]);
+
+export const INLINE_ELEMENTS = Object.freeze([
+  "a",
+  "span",
+  "strong",
+  "em",
+  "b",
+  "i",
+  "mark",
+  "small",
+  "sup",
+  "sub"
+]);
+
+export const BLOCK_ELEMENTS = Object.freeze([
+  "article",
+  "section",
+  "div",
+  "p",
+  "blockquote",
+  "pre",
+  "table",
+  "figure",
+  "header",
+  "footer",
+  "nav"
 ]);
 
 /* -------------------------------------------------------------------------- */
-/*                            Void Elements                                   */
+/*                             HTML Specification                             */
 /* -------------------------------------------------------------------------- */
 
 export const VOID_ELEMENTS = new Set([
@@ -234,15 +264,14 @@ export const VOID_ELEMENTS = new Set([
   "param",
   "source",
   "track",
-  "wbr",
+  "wbr"
 ]);
 
 /* -------------------------------------------------------------------------- */
-/*                           Metadata Keys                                    */
+/*                               Metadata                                     */
 /* -------------------------------------------------------------------------- */
 
 export const META_NAMES = Object.freeze({
-
   DESCRIPTION: "description",
 
   KEYWORDS: "keywords",
@@ -259,16 +288,10 @@ export const META_NAMES = Object.freeze({
 
   THEME_COLOR: "theme-color",
 
-  APPLICATION_NAME: "application-name",
-
+  APPLICATION_NAME: "application-name"
 });
 
-/* -------------------------------------------------------------------------- */
-/*                             OpenGraph                                      */
-/* -------------------------------------------------------------------------- */
-
 export const OG_PROPERTIES = Object.freeze({
-
   TITLE: "og:title",
 
   DESCRIPTION: "og:description",
@@ -283,16 +306,12 @@ export const OG_PROPERTIES = Object.freeze({
 
   LOCALE: "og:locale",
 
-  VIDEO: "og:video",
+  AUDIO: "og:audio",
 
+  VIDEO: "og:video"
 });
 
-/* -------------------------------------------------------------------------- */
-/*                             Twitter Cards                                  */
-/* -------------------------------------------------------------------------- */
-
 export const TWITTER_PROPERTIES = Object.freeze({
-
   CARD: "twitter:card",
 
   TITLE: "twitter:title",
@@ -303,49 +322,79 @@ export const TWITTER_PROPERTIES = Object.freeze({
 
   SITE: "twitter:site",
 
-  CREATOR: "twitter:creator",
-
+  CREATOR: "twitter:creator"
 });
 
 /* -------------------------------------------------------------------------- */
-/*                           Schema.org                                       */
+/*                              Schema.org                                    */
 /* -------------------------------------------------------------------------- */
 
 export const SCHEMA_TYPES = Object.freeze([
-
   "Article",
 
   "NewsArticle",
 
   "BlogPosting",
 
+  "TechArticle",
+
+  "LiveBlogPosting",
+
   "FAQPage",
+
+  "QAPage",
 
   "HowTo",
 
   "Recipe",
 
+  "Course",
+
   "Organization",
+
+  "Corporation",
+
+  "LocalBusiness",
 
   "Person",
 
+  "ProfilePage",
+
   "WebSite",
+
+  "WebPage",
+
+  "CollectionPage",
+
+  "ItemList",
 
   "BreadcrumbList",
 
+  "Dataset",
+
+  "Product",
+
+  "Review",
+
+  "Event"
 ]);
 
 /* -------------------------------------------------------------------------- */
-/*                             Link Rel Values                                */
+/*                              Link Relations                                */
 /* -------------------------------------------------------------------------- */
 
 export const LINK_REL = Object.freeze({
-
   CANONICAL: "canonical",
 
   ICON: "icon",
 
   SHORTCUT_ICON: "shortcut icon",
+
+  APPLE_TOUCH_ICON: "apple-touch-icon",
+
+  MASK_ICON: "mask-icon",
+
+  MANIFEST: "manifest",
 
   STYLESHEET: "stylesheet",
 
@@ -353,18 +402,28 @@ export const LINK_REL = Object.freeze({
 
   PREFETCH: "prefetch",
 
+  PRECONNECT: "preconnect",
+
+  DNS_PREFETCH: "dns-prefetch",
+
+  MODULE_PRELOAD: "modulepreload",
+
   NEXT: "next",
 
   PREV: "prev",
 
+  ALTERNATE: "alternate",
+
+  AUTHOR: "author",
+
+  LICENSE: "license"
 });
 
 /* -------------------------------------------------------------------------- */
-/*                             Input Types                                    */
+/*                               Input Types                                  */
 /* -------------------------------------------------------------------------- */
 
 export const INPUT_TYPES = Object.freeze([
-
   "text",
 
   "email",
@@ -389,8 +448,23 @@ export const INPUT_TYPES = Object.freeze([
 
   "datetime-local",
 
+  "month",
+
+  "week",
+
+  "time",
+
+  "tel",
+
+  "color",
+
+  "range",
+
   "submit",
 
+  "reset",
+
+  "button"
 ]);
 
 /* -------------------------------------------------------------------------- */
@@ -398,7 +472,6 @@ export const INPUT_TYPES = Object.freeze([
 /* -------------------------------------------------------------------------- */
 
 export const DEFAULT_PARSE_OPTIONS: Required<HtmlParseOptions> = {
-
   readability: true,
 
   markdown: true,
@@ -429,12 +502,11 @@ export const DEFAULT_PARSE_OPTIONS: Required<HtmlParseOptions> = {
 
   chunking: true,
 
-  preserveHtml: false,
-
+  preserveHtml: false
 };
 
 /* -------------------------------------------------------------------------- */
-/*                         Reading Statistics                                 */
+/*                             Parser Defaults                                */
 /* -------------------------------------------------------------------------- */
 
 export const DEFAULT_READING_SPEED_WPM = 225;
@@ -443,12 +515,67 @@ export const DEFAULT_CHUNK_SIZE = 1200;
 
 export const DEFAULT_CHUNK_OVERLAP = 150;
 
+export const MAX_HEADING_LEVEL = 6;
+
+export const MAX_META_SIZE = 1024 * 1024;
+
+export const MAX_TEXT_LENGTH = 20 * 1024 * 1024;
+
 /* -------------------------------------------------------------------------- */
-/*                         Regular Expressions                                */
+/*                             MIME Types                                     */
+/* -------------------------------------------------------------------------- */
+
+export const MIME_TYPES = Object.freeze({
+  HTML: "text/html",
+
+  XHTML: "application/xhtml+xml",
+
+  XML: "application/xml",
+
+  SVG: "image/svg+xml",
+
+  JSON: "application/json",
+
+  JSONLD: "application/ld+json",
+
+  PDF: "application/pdf",
+
+  TEXT: "text/plain",
+
+  MARKDOWN: "text/markdown"
+});
+
+/* -------------------------------------------------------------------------- */
+/*                           HTTP Header Names                                */
+/* -------------------------------------------------------------------------- */
+
+export const HEADERS = Object.freeze({
+  CONTENT_TYPE: "content-type",
+
+  CONTENT_LENGTH: "content-length",
+
+  CONTENT_ENCODING: "content-encoding",
+
+  CACHE_CONTROL: "cache-control",
+
+  ETAG: "etag",
+
+  LAST_MODIFIED: "last-modified",
+
+  LOCATION: "location",
+
+  SET_COOKIE: "set-cookie",
+
+  SERVER: "server",
+
+  USER_AGENT: "user-agent"
+});
+
+/* -------------------------------------------------------------------------- */
+/*                             Regular Expressions                            */
 /* -------------------------------------------------------------------------- */
 
 export const REGEX = Object.freeze({
-
   MULTIPLE_WHITESPACE: /\s+/g,
 
   HTML_COMMENT: /<!--[\s\S]*?-->/g,
@@ -460,20 +587,32 @@ export const REGEX = Object.freeze({
   JSON_LD:
     /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
 
-  ABSOLUTE_URL:
-    /^https?:\/\//i,
+  ABSOLUTE_URL: /^(https?:)?\/\//i,
 
-  DATA_URI:
-    /^data:/i,
+  RELATIVE_URL: /^(?!https?:\/\/)(?!\/\/)(?!mailto:)(?!tel:).+/i,
 
+  DATA_URI: /^data:/i,
+
+  MAILTO: /^mailto:/i,
+
+  TEL: /^tel:/i,
+
+  HASH: /^#/,
+
+  WHITESPACE: /^\s*$/,
+
+  MULTIPLE_NEWLINES: /\n{3,}/g,
+
+  SENTENCE_SPLIT: /(?<=[.!?])\s+/,
+
+  WORD_SPLIT: /\s+/
 });
 
 /* -------------------------------------------------------------------------- */
-/*                      Attribute Names                                       */
+/*                             HTML Attributes                                */
 /* -------------------------------------------------------------------------- */
 
 export const ATTRIBUTES = Object.freeze({
-
   ID: "id",
 
   CLASS: "class",
@@ -506,16 +645,36 @@ export const ATTRIBUTES = Object.freeze({
 
   ROLE: "role",
 
+  TARGET: "target",
+
+  DOWNLOAD: "download",
+
+  PLACEHOLDER: "placeholder",
+
+  REQUIRED: "required",
+
+  CHECKED: "checked",
+
+  DISABLED: "disabled",
+
+  READONLY: "readonly",
+
+  ACTION: "action",
+
+  METHOD: "method",
+
+  ENCTYPE: "enctype",
+
   ARIA_LABEL: "aria-label",
 
+  ARIA_HIDDEN: "aria-hidden"
 });
 
 /* -------------------------------------------------------------------------- */
-/*                          Export Collections                                */
+/*                            Aggregate Export                                */
 /* -------------------------------------------------------------------------- */
 
 export const HTML_CONSTANTS = Object.freeze({
-
   HTML_TAGS,
 
   HEADING_TAGS,
@@ -534,6 +693,12 @@ export const HTML_CONSTANTS = Object.freeze({
 
   BOILERPLATE_TAGS,
 
+  PRESERVE_WHITESPACE_TAGS,
+
+  INLINE_ELEMENTS,
+
+  BLOCK_ELEMENTS,
+
   VOID_ELEMENTS,
 
   META_NAMES,
@@ -548,6 +713,10 @@ export const HTML_CONSTANTS = Object.freeze({
 
   INPUT_TYPES,
 
+  MIME_TYPES,
+
+  HEADERS,
+
   ATTRIBUTES,
 
   DEFAULT_PARSE_OPTIONS,
@@ -558,6 +727,11 @@ export const HTML_CONSTANTS = Object.freeze({
 
   DEFAULT_CHUNK_OVERLAP,
 
-  REGEX,
+  MAX_HEADING_LEVEL,
 
+  MAX_META_SIZE,
+
+  MAX_TEXT_LENGTH,
+
+  REGEX
 });
