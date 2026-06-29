@@ -1,492 +1,863 @@
 /**
  * fetch/robots.ts
  *
- * robots.txt support for the Fetch subsystem.
+ * robots.txt implementation.
  *
- * Features:
- * - Download robots.txt
- * - Parse User-agent sections
- * - Allow / Disallow matching
- * - Crawl-delay
- * - Sitemap discovery
- * - Caching
- * - Wildcard support
+ * RFC 9309 compliant parser with
+ * caching and rule evaluation.
  */
 
-import { FetchError, FetchErrorCode, RobotsRule } from "./types";
+import type { RobotsOptions, RobotsRule } from "./types";
 
-export interface RobotsOptions {
-  userAgent?: string;
-  timeoutMs?: number;
-  cacheTtlMs?: number;
-}
+import { cacheManager } from "./cache";
 
-export interface RobotsFile {
+/* -------------------------------------------------------------------------- */
+/* Types                                                                      */
+/* -------------------------------------------------------------------------- */
 
-  url: string;
+export interface ParsedRobots {
+  host: string;
 
-  fetchedAt: Date;
+  fetchedAt: number;
+
+  rules: RobotsRule[];
 
   sitemaps: string[];
-
-  groups: RobotsGroup[];
 }
 
-export interface RobotsGroup {
+export interface RobotsMatch {
+  allowed: boolean;
 
-  userAgents: string[];
-
-  allow: string[];
-
-  disallow: string[];
+  matchedRule?: string;
 
   crawlDelay?: number;
 }
 
-interface CacheEntry {
-
-  expires: number;
-
-  robots: RobotsFile;
+export interface RobotsFetcher {
+  (url: string): Promise<Response>;
 }
 
-const cache = new Map<string, CacheEntry>();
+/* -------------------------------------------------------------------------- */
+/* Parser                                                                     */
+/* -------------------------------------------------------------------------- */
 
-const DEFAULT_AGENT = "Cloudflare-Agent";
+export class RobotsParser {
+  /* -------------------------------------------------------------------------- */
+  /* Parsing                                                                    */
+  /* -------------------------------------------------------------------------- */
 
-const DEFAULT_TTL = 1000 * 60 * 10;
+  parse(
+    text: string,
 
-/**
- * Download and parse robots.txt.
- */
-export async function loadRobots(
-  target: URL,
-  options: RobotsOptions = {}
-): Promise<RobotsFile> {
+    host = ""
+  ): ParsedRobots {
+    const rules: RobotsRule[] = [];
 
-  const origin = target.origin;
+    const sitemaps: string[] = [];
 
-  const cached = cache.get(origin);
+    let current: RobotsRule | undefined;
 
-  if (
-    cached &&
-    cached.expires > Date.now()
-  ) {
-    return cached.robots;
-  }
+    const lines = text
 
-  const robotsUrl =
-    `${origin}/robots.txt`;
+      .replace(/\r\n/g, "\n")
 
-  let response: Response;
+      .split("\n");
 
-  try {
+    for (const rawLine of lines) {
+      const line = rawLine
 
-    response = await fetch(
-      robotsUrl,
-      {
-        signal: AbortSignal.timeout(
-          options.timeoutMs ?? 5000
-        ),
-      }
-    );
+        .replace(/#.*$/, "")
 
-  } catch (error) {
-
-    throw new FetchError(
-      FetchErrorCode.NETWORK_ERROR,
-      "Unable to fetch robots.txt",
-      error
-    );
-
-  }
-
-  if (
-    response.status === 404
-  ) {
-
-    const empty: RobotsFile = {
-      url: robotsUrl,
-      fetchedAt: new Date(),
-      groups: [],
-      sitemaps: [],
-    };
-
-    cache.set(origin, {
-      expires:
-        Date.now() +
-        (options.cacheTtlMs ??
-          DEFAULT_TTL),
-      robots: empty,
-    });
-
-    return empty;
-  }
-
-  const text =
-    await response.text();
-
-  const robots =
-    parseRobots(
-      robotsUrl,
-      text
-    );
-
-  cache.set(origin, {
-
-    expires:
-      Date.now() +
-      (options.cacheTtlMs ??
-        DEFAULT_TTL),
-
-    robots,
-
-  });
-
-  return robots;
-}
-
-/**
- * Parse robots.txt.
- */
-export function parseRobots(
-  url: string,
-  text: string
-): RobotsFile {
-
-  const groups: RobotsGroup[] = [];
-
-  const sitemaps: string[] = [];
-
-  let current: RobotsGroup = {
-
-    userAgents: [],
-
-    allow: [],
-
-    disallow: [],
-
-  };
-
-  for (
-    const rawLine of
-      text.split("\n")
-  ) {
-
-    const line =
-      rawLine
-        .split("#")[0]
         .trim();
 
-    if (!line) {
-      continue;
-    }
+      if (!line) {
+        continue;
+      }
 
-    const idx =
-      line.indexOf(":");
+      const separator = line.indexOf(":");
 
-    if (idx < 0) {
-      continue;
-    }
+      if (separator < 0) {
+        continue;
+      }
 
-    const key =
-      line
-        .slice(0, idx)
+      const key = line
+
+        .substring(
+          0,
+
+          separator
+        )
+
         .trim()
+
         .toLowerCase();
 
-    const value =
-      line
-        .slice(idx + 1)
+      const value = line
+
+        .substring(separator + 1)
+
         .trim();
 
-    switch (key) {
-
-      case "user-agent":
-
-        if (
-          current.userAgents
-            .length > 0
-        ) {
-
-          groups.push(
-            current
-          );
-
+      switch (key) {
+        case "user-agent": {
           current = {
-
-            userAgents: [],
+            userAgent: value,
 
             allow: [],
 
             disallow: [],
 
+            crawlDelay: undefined,
+
+            sitemaps: []
           };
 
+          rules.push(current);
+
+          break;
         }
 
-        current.userAgents.push(
-          value.toLowerCase()
-        );
+        case "allow": {
+          current?.allow.push(value);
 
-        break;
+          break;
+        }
 
-      case "allow":
+        case "disallow": {
+          current?.disallow.push(value);
 
-        current.allow.push(
-          value
-        );
+          break;
+        }
 
-        break;
+        case "crawl-delay": {
+          if (current) {
+            const delay = Number(value);
 
-      case "disallow":
+            if (Number.isFinite(delay)) {
+              current.crawlDelay = delay;
+            }
+          }
 
-        current.disallow.push(
-          value
-        );
+          break;
+        }
 
-        break;
+        case "request-rate": {
+          /*
+           * RFC extension.
+           * Stored later if needed.
+           */
 
-      case "crawl-delay":
+          break;
+        }
 
-        current.crawlDelay =
-          Number(value);
+        case "sitemap": {
+          sitemaps.push(value);
 
-        break;
+          current?.sitemaps.push(value);
 
-      case "sitemap":
+          break;
+        }
 
-        sitemaps.push(
-          value
-        );
-
-        break;
-
+        default:
+          break;
+      }
     }
 
+    return {
+      host,
+
+      fetchedAt: Date.now(),
+
+      rules,
+
+      sitemaps: [...new Set(sitemaps)]
+    };
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Manager                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export class RobotsManager {
+  constructor(readonly options: RobotsOptions = {}) {}
+
+  async get(
+    url: string,
+
+    fetcher: RobotsFetcher
+  ): Promise<ParsedRobots> {
+    return fetchRobots(
+      url,
+
+      fetcher
+    );
   }
 
-  if (
-    current.userAgents.length
-  ) {
+  async refresh(
+    url: string,
 
-    groups.push(
-      current
+    fetcher: RobotsFetcher
+  ): Promise<ParsedRobots> {
+    return refreshRobots(
+      url,
+
+      fetcher
+    );
+  }
+
+  async canFetch(
+    url: string,
+
+    fetcher: RobotsFetcher,
+
+    userAgent = this.options.userAgent ?? "*"
+  ): Promise<RobotsMatch> {
+    if (this.options.respectRobotsTxt === false) {
+      return {
+        allowed: true
+      };
+    }
+
+    const robots = await this.get(
+      url,
+
+      fetcher
     );
 
+    return canFetch(
+      robots,
+
+      userAgent,
+
+      url
+    );
+  }
+}
+
+export const robotsParser = new RobotsParser();
+
+export const robotsManager = new RobotsManager();
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export function parseRobots(
+  text: string,
+
+  host = ""
+): ParsedRobots {
+  return robotsParser.parse(
+    text,
+
+    host
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* User-Agent Lookup                                                          */
+/* -------------------------------------------------------------------------- */
+
+export function findRules(
+  robots: ParsedRobots,
+
+  userAgent: string
+): RobotsRule[] {
+  const normalized = userAgent.toLowerCase();
+
+  const exact = robots.rules.filter(
+    (rule) => rule.userAgent.toLowerCase() === normalized
+  );
+
+  if (exact.length > 0) {
+    return exact;
+  }
+
+  return robots.rules.filter((rule) => rule.userAgent === "*");
+}
+
+/* -------------------------------------------------------------------------- */
+/* Sitemap Helpers                                                            */
+/* -------------------------------------------------------------------------- */
+
+export function extractSitemaps(robots: ParsedRobots): string[] {
+  return [...new Set(robots.sitemaps)];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Pattern Compilation                                                        */
+/* -------------------------------------------------------------------------- */
+
+function escapeRegex(pattern: string): string {
+  return pattern.replace(
+    /[.+?^${}()|[\]\\]/g,
+
+    "\\$&"
+  );
+}
+
+export function compilePattern(pattern: string): RegExp {
+  let regex = escapeRegex(pattern);
+
+  /*
+   * RFC 9309:
+   *
+   * *  -> wildcard
+   * $  -> end of path
+   */
+
+  regex = regex
+
+    .replace(/\\\*/g, ".*");
+
+  if (regex.endsWith("\\$")) {
+    regex =
+      regex.slice(
+        0,
+
+        -2
+      ) + "$";
+  } else {
+    regex += ".*";
+  }
+
+  return new RegExp(
+    "^" + regex,
+
+    "i"
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Rule Match                                                                 */
+/* -------------------------------------------------------------------------- */
+
+export interface RuleMatch {
+  pattern: string;
+
+  allow: boolean;
+
+  length: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Matching                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export function matchRules(
+  path: string,
+
+  rules: RobotsRule[]
+): RuleMatch | undefined {
+  let best: RuleMatch | undefined;
+
+  const consider = (
+    patterns: string[],
+
+    allow: boolean
+  ) => {
+    for (const pattern of patterns) {
+      if (!pattern) {
+        continue;
+      }
+
+      const regex = compilePattern(pattern);
+
+      if (!regex.test(path)) {
+        continue;
+      }
+
+      const candidate: RuleMatch = {
+        pattern,
+
+        allow,
+
+        length: pattern.length
+      };
+
+      if (
+        !best ||
+        candidate.length > best.length ||
+        (candidate.length === best.length && candidate.allow)
+      ) {
+        best = candidate;
+      }
+    }
+  };
+
+  for (const rule of rules) {
+    consider(
+      rule.disallow,
+
+      false
+    );
+
+    consider(
+      rule.allow,
+
+      true
+    );
+  }
+
+  return best;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Authorization                                                              */
+/* -------------------------------------------------------------------------- */
+
+export function canFetch(
+  robots: ParsedRobots,
+
+  userAgent: string,
+
+  url: string
+): RobotsMatch {
+  const parsed = new URL(url);
+
+  const rules = findRules(
+    robots,
+
+    userAgent
+  );
+
+  if (rules.length === 0) {
+    return {
+      allowed: true
+    };
+  }
+
+  const match = matchRules(
+    parsed.pathname,
+
+    rules
+  );
+
+  if (!match) {
+    return {
+      allowed: true,
+
+      crawlDelay: rules.find((r) => r.crawlDelay !== undefined)?.crawlDelay
+    };
   }
 
   return {
+    allowed: match.allow,
 
+    matchedRule: match.pattern,
+
+    crawlDelay: rules.find((r) => r.crawlDelay !== undefined)?.crawlDelay
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Convenience                                                                */
+/* -------------------------------------------------------------------------- */
+
+export function isAllowed(
+  robots: ParsedRobots,
+
+  userAgent: string,
+
+  url: string
+): boolean {
+  return canFetch(
+    robots,
+
+    userAgent,
+
+    url
+  ).allowed;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cache Keys                                                                 */
+/* -------------------------------------------------------------------------- */
+
+function cacheKey(host: string): string {
+  return `robots:${host.toLowerCase()}`;
+}
+
+/* -------------------------------------------------------------------------- */
+/* robots.txt URL                                                             */
+/* -------------------------------------------------------------------------- */
+
+export function robotsUrl(url: string | URL): string {
+  const parsed = typeof url === "string" ? new URL(url) : url;
+
+  return new URL(
+    "/robots.txt",
+
+    parsed.origin
+  ).toString();
+}
+
+/* -------------------------------------------------------------------------- */
+/* Fetch                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export async function fetchRobots(
+  url: string,
+
+  fetcher: RobotsFetcher,
+
+  ttl = 60 * 60 * 1000
+): Promise<ParsedRobots> {
+  const parsed = new URL(url);
+
+  const key = cacheKey(parsed.host);
+
+  const cached = await cacheManager.get<ParsedRobots>(key);
+
+  if (cached) {
+    return cached.value;
+  }
+
+  const response = await fetcher(robotsUrl(parsed));
+
+  if (!response.ok) {
+    /*
+     * RFC:
+     *
+     * Missing robots.txt
+     * means allow all.
+     */
+
+    const empty: ParsedRobots = {
+      host: parsed.host,
+
+      fetchedAt: Date.now(),
+
+      rules: [],
+
+      sitemaps: []
+    };
+
+    await cacheManager.set(
+      key,
+
+      empty,
+
+      ttl
+    );
+
+    return empty;
+  }
+
+  const text = await response.text();
+
+  const robots = robotsParser.parse(
+    text,
+
+    parsed.host
+  );
+
+  await cacheManager.set(
+    key,
+
+    robots,
+
+    ttl
+  );
+
+  return robots;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Refresh                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export async function refreshRobots(
+  url: string,
+
+  fetcher: RobotsFetcher,
+
+  ttl = 60 * 60 * 1000
+): Promise<ParsedRobots> {
+  const parsed = new URL(url);
+
+  await cacheManager.delete(cacheKey(parsed.host));
+
+  return fetchRobots(
     url,
 
-    fetchedAt:
-      new Date(),
+    fetcher,
 
-    groups,
-
-    sitemaps,
-
-  };
-
+    ttl
+  );
 }
 
-/**
- * Check whether a URL is crawlable.
- */
-export function isAllowed(
-  robots: RobotsFile,
-  url: URL,
-  userAgent = DEFAULT_AGENT
-): RobotsRule {
+/* -------------------------------------------------------------------------- */
+/* Sitemap Helpers                                                            */
+/* -------------------------------------------------------------------------- */
 
-  const path =
-    url.pathname;
+export function getSitemaps(robots: ParsedRobots): string[] {
+  return [...new Set(robots.sitemaps)];
+}
 
-  const group =
-    findGroup(
-      robots,
-      userAgent
-    );
+export function hasSitemap(robots: ParsedRobots): boolean {
+  return robots.sitemaps.length > 0;
+}
 
-  if (!group) {
+/* -------------------------------------------------------------------------- */
+/* Crawl Delay                                                                */
+/* -------------------------------------------------------------------------- */
 
-    return {
+export function getCrawlDelay(
+  robots: ParsedRobots,
 
-      allowed: true,
+  userAgent: string
+): number | undefined {
+  const rules = findRules(
+    robots,
 
-    };
+    userAgent
+  );
 
-  }
-
-  let matchedAllow:
-    string | undefined;
-
-  let matchedDisallow:
-    string | undefined;
-
-  for (
-    const rule of
-      group.allow
-  ) {
-
-    if (
-      matchRule(
-        path,
-        rule
-      )
-    ) {
-
-      if (
-        !matchedAllow ||
-        rule.length >
-          matchedAllow.length
-      ) {
-
-        matchedAllow =
-          rule;
-
-      }
-
+  for (const rule of rules) {
+    if (rule.crawlDelay !== undefined) {
+      return rule.crawlDelay;
     }
-
   }
 
-  for (
-    const rule of
-      group.disallow
-  ) {
+  return;
+}
 
-    if (
-      matchRule(
-        path,
-        rule
-      )
-    ) {
+/* -------------------------------------------------------------------------- */
+/* Request Rate (RFC Extension)                                               */
+/* -------------------------------------------------------------------------- */
 
-      if (
-        !matchedDisallow ||
-        rule.length >
-          matchedDisallow.length
-      ) {
+export interface RequestRate {
+  requests: number;
 
-        matchedDisallow =
-          rule;
+  seconds: number;
+}
 
-      }
+export function parseRequestRate(value: string): RequestRate | undefined {
+  const match = value.match(/^\s*(\d+)\s*\/\s*(\d+)\s*$/);
 
-    }
-
-  }
-
-  if (
-    matchedAllow &&
-    (!matchedDisallow ||
-      matchedAllow.length >=
-        matchedDisallow.length)
-  ) {
-
-    return {
-
-      allowed: true,
-
-      crawlDelay:
-        group.crawlDelay,
-
-      matchedRule:
-        matchedAllow,
-
-    };
-
-  }
-
-  if (
-    matchedDisallow
-  ) {
-
-    return {
-
-      allowed: false,
-
-      crawlDelay:
-        group.crawlDelay,
-
-      matchedRule:
-        matchedDisallow,
-
-    };
-
+  if (!match) {
+    return;
   }
 
   return {
+    requests: Number(match[1]),
 
-    allowed: true,
-
-    crawlDelay:
-      group.crawlDelay,
-
+    seconds: Number(match[2])
   };
-
 }
 
-/**
- * Find the best User-agent group.
- */
-export function findGroup(
-  robots: RobotsFile,
-  userAgent: string
-): RobotsGroup | undefined {
+/* -------------------------------------------------------------------------- */
+/* Registry                                                                   */
+/* -------------------------------------------------------------------------- */
 
-  const ua =
-    userAgent.toLowerCase();
+const robotsRegistry = new Map<string, ParsedRobots>();
 
-  return (
-    robots.groups.find(
-      g =>
-        g.userAgents.includes(
-          ua
-        )
-    ) ??
+export function registerRobots(robots: ParsedRobots): void {
+  robotsRegistry.set(
+    robots.host,
 
-    robots.groups.find(
-      g =>
-        g.userAgents.includes(
-          "*"
-        )
-    )
-
+    robots
   );
-
 }
 
-/**
- * Basic wildcard matcher.
- */
-export function matchRule(
-  path: string,
-  rule: string
-): boolean {
+export function unregisterRobots(host: string): boolean {
+  return robotsRegistry.delete(host);
+}
 
-  if (!rule) {
-    return false;
+export function getRegisteredRobots(host: string): ParsedRobots | undefined {
+  return robotsRegistry.get(host);
+}
+
+export function clearRobotsRegistry(): void {
+  robotsRegistry.clear();
+}
+
+/* -------------------------------------------------------------------------- */
+/* Statistics                                                                 */
+/* -------------------------------------------------------------------------- */
+
+export interface RobotsStatistics {
+  hosts: number;
+
+  sitemaps: number;
+
+  rules: number;
+}
+
+export function collectRobotsStatistics(): RobotsStatistics {
+  let rules = 0;
+
+  let sitemaps = 0;
+
+  for (const robots of robotsRegistry.values()) {
+    rules += robots.rules.length;
+
+    sitemaps += robots.sitemaps.length;
   }
 
-  const regex =
-    new RegExp(
-      "^" +
-        rule
-          .replace(
-            /\*/g,
-            ".*"
-          )
-          .replace(
-            /\$/g,
-            "$"
-          )
-    );
+  return {
+    hosts: robotsRegistry.size,
 
-  return regex.test(
-    path
+    rules,
+
+    sitemaps
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Convenience                                                                */
+/* -------------------------------------------------------------------------- */
+
+export async function ensureRobots(
+  url: string,
+
+  fetcher: RobotsFetcher
+): Promise<ParsedRobots> {
+  const host = new URL(url).host;
+
+  const existing = getRegisteredRobots(host);
+
+  if (existing) {
+    return existing;
+  }
+
+  const robots = await fetchRobots(
+    url,
+
+    fetcher
   );
 
+  registerRobots(robots);
+
+  return robots;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Convenience API                                                            */
+/* -------------------------------------------------------------------------- */
+
+export async function isUrlAllowed(
+  url: string,
+
+  fetcher: RobotsFetcher,
+
+  userAgent = "*"
+): Promise<boolean> {
+  const robots = await ensureRobots(
+    url,
+
+    fetcher
+  );
+
+  return isAllowed(
+    robots,
+
+    userAgent,
+
+    url
+  );
+}
+
+export async function getRobotsForHost(
+  url: string,
+
+  fetcher: RobotsFetcher
+): Promise<ParsedRobots> {
+  return ensureRobots(
+    url,
+
+    fetcher
+  );
+}
+
+export async function getHostSitemaps(
+  url: string,
+
+  fetcher: RobotsFetcher
+): Promise<string[]> {
+  const robots = await ensureRobots(
+    url,
+
+    fetcher
+  );
+
+  return getSitemaps(robots);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Manager Factory                                                            */
+/* -------------------------------------------------------------------------- */
+
+export function createRobotsManager(options?: RobotsOptions): RobotsManager {
+  return new RobotsManager(options);
+}
+
+export function createRobotsParser(): RobotsParser {
+  return new RobotsParser();
+}
+
+/* -------------------------------------------------------------------------- */
+/* Default Export                                                             */
+/* -------------------------------------------------------------------------- */
+
+export default {
+  RobotsParser,
+
+  RobotsManager,
+
+  robotsParser,
+
+  robotsManager,
+
+  parseRobots,
+
+  fetchRobots,
+
+  refreshRobots,
+
+  ensureRobots,
+
+  canFetch,
+
+  isAllowed,
+
+  isUrlAllowed,
+
+  findRules,
+
+  matchRules,
+
+  compilePattern,
+
+  extractSitemaps,
+
+  getSitemaps,
+
+  hasSitemap,
+
+  getCrawlDelay,
+
+  parseRequestRate,
+
+  robotsUrl,
+
+  registerRobots,
+
+  unregisterRobots,
+
+  getRegisteredRobots,
+
+  clearRobotsRegistry,
+
+  collectRobotsStatistics,
+
+  getRobotsForHost,
+
+  getHostSitemaps,
+
+  createRobotsManager,
+
+  createRobotsParser
+};

@@ -1,276 +1,829 @@
-import * as ipaddr from "ipaddr.js";
-import {
-  FetchError,
-  FetchErrorCode,
-  SecurityPolicy,
-} from "./types";
-
 /**
- * Default ports allowed for outbound HTTP requests.
+ * fetch/security.ts
+ *
+ * Fetch security validation.
+ *
+ * Prevents:
+ *
+ *  • SSRF
+ *  • Localhost access
+ *  • Private IP access
+ *  • Protocol abuse
+ *  • Oversized responses
+ *  • Unsafe redirects
  */
-export const DEFAULT_ALLOWED_PORTS = new Set([
-  80,
-  443,
-]);
 
-/**
- * Common ports that should never be reachable.
- */
-export const DEFAULT_BLOCKED_PORTS = new Set([
-  20,
-  21,
-  22,
-  23,
-  25,
-  53,
-  110,
-  135,
-  137,
-  138,
-  139,
-  143,
-  445,
-  1433,
-  1521,
-  2375,
-  2376,
-  3306,
-  3389,
-  5432,
-  6379,
-  8080,
-  9200,
-  11211,
-]);
+import type { SecurityOptions, SecurityResult } from "./types";
 
-export interface SecurityValidationResult {
-  allowed: boolean;
-  normalizedUrl: URL;
-  reason?: string;
-}
+/* -------------------------------------------------------------------------- */
+/* Constants                                                                  */
+/* -------------------------------------------------------------------------- */
 
-const DEFAULT_ALLOWED_PROTOCOLS = new Set([
-  "http:",
-  "https:",
-]);
+const DEFAULT_OPTIONS: Required<SecurityOptions> = {
+  enabled: true,
 
-/**
- * Validate a URL before making any outbound request.
- */
-export function validateUrl(
-  rawUrl: string,
-  policy: SecurityPolicy = {}
-): SecurityValidationResult {
+  allowPrivateNetworks: false,
 
-  let url: URL;
+  allowLocalhost: false,
 
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    throw new FetchError(
-      FetchErrorCode.INVALID_URL,
-      "Invalid URL"
+  allowFileUrls: false,
+
+  allowDataUrls: false,
+
+  allowInsecureTls: false,
+
+  validateCertificates: true,
+
+  maxContentLength: 50 * 1024 * 1024,
+
+  maxRedirects: 10,
+
+  allowedProtocols: [
+    "http",
+
+    "https"
+  ],
+
+  blockedHosts: [],
+
+  allowedHosts: []
+};
+
+/* -------------------------------------------------------------------------- */
+/* Validator                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export class SecurityValidator {
+  constructor(readonly options: SecurityOptions = {}) {}
+
+  /* -------------------------------------------------------------------------- */
+  /* Validator                                                                  */
+  /* -------------------------------------------------------------------------- */
+
+  validate(url: string): SecurityResult {
+    const parsed = validateUrl(url);
+
+    return mergeResults(
+      validateProtocol(
+        parsed,
+
+        this.options
+      ),
+
+      validateHostname(
+        parsed,
+
+        this.options
+      ),
+
+      validateLocalhost(
+        parsed,
+
+        this.options
+      ),
+
+      validatePrivateNetwork(
+        parsed,
+
+        this.options
+      ),
+
+      validateTls(
+        parsed,
+
+        this.options
+      )
     );
   }
+}
 
-  validateProtocol(url);
+/* -------------------------------------------------------------------------- */
+/* Public API                                                                 */
+/* -------------------------------------------------------------------------- */
 
-  validateHost(url, policy);
+export const securityValidator = new SecurityValidator();
 
-  validatePort(url, policy);
+/* -------------------------------------------------------------------------- */
+/* URL Validation                                                             */
+/* -------------------------------------------------------------------------- */
+
+export function validateUrl(url: string): URL {
+  try {
+    return new URL(url);
+  } catch {
+    throw new Error(`Invalid URL: ${url}`);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Protocol Validation                                                        */
+/* -------------------------------------------------------------------------- */
+
+export function isAllowedProtocol(
+  protocol: string,
+
+  options: SecurityOptions = {}
+): boolean {
+  const config = {
+    ...DEFAULT_OPTIONS,
+
+    ...options
+  };
+
+  const normalized = protocol
+
+    .replace(/:$/, "")
+
+    .toLowerCase();
+
+  if (normalized === "file") {
+    return config.allowFileUrls;
+  }
+
+  if (normalized === "data") {
+    return config.allowDataUrls;
+  }
+
+  return config.allowedProtocols.includes(normalized);
+}
+
+export function validateProtocol(
+  url: URL,
+
+  options: SecurityOptions = {}
+): SecurityResult {
+  const protocol = url.protocol
+
+    .replace(/:$/, "")
+
+    .toLowerCase();
+
+  if (
+    isAllowedProtocol(
+      protocol,
+
+      options
+    )
+  ) {
+    return {
+      allowed: true,
+
+      warnings: [],
+
+      violations: []
+    };
+  }
 
   return {
-    allowed: true,
-    normalizedUrl: url,
+    allowed: false,
+
+    warnings: [],
+
+    violations: [`Protocol '${protocol}' is not allowed.`]
   };
 }
 
-/**
- * Validate protocol.
- */
-export function validateProtocol(url: URL) {
+/* -------------------------------------------------------------------------- */
+/* Hostname Validation                                                        */
+/* -------------------------------------------------------------------------- */
 
-  if (!DEFAULT_ALLOWED_PROTOCOLS.has(url.protocol)) {
-    throw new FetchError(
-      FetchErrorCode.BLOCKED_HOST,
-      `Protocol ${url.protocol} is not allowed`
-    );
+export function validateHostname(
+  url: URL,
+
+  options: SecurityOptions = {}
+): SecurityResult {
+  const config = {
+    ...DEFAULT_OPTIONS,
+
+    ...options
+  };
+
+  const host = url.hostname.toLowerCase();
+
+  if (config.blockedHosts.some((blocked) => blocked.toLowerCase() === host)) {
+    return {
+      allowed: false,
+
+      warnings: [],
+
+      violations: [`Host '${host}' is blocked.`]
+    };
   }
 
+  if (
+    config.allowedHosts.length > 0 &&
+    !config.allowedHosts.some((allowed) => allowed.toLowerCase() === host)
+  ) {
+    return {
+      allowed: false,
+
+      warnings: [],
+
+      violations: [`Host '${host}' is not in the allow-list.`]
+    };
+  }
+
+  return {
+    allowed: true,
+
+    warnings: [],
+
+    violations: []
+  };
 }
 
-/**
- * Validate hostname.
- */
-export function validateHost(
+/* -------------------------------------------------------------------------- */
+/* Localhost                                                                  */
+/* -------------------------------------------------------------------------- */
+
+const LOCALHOST_NAMES = new Set([
+  "localhost",
+
+  "localhost.localdomain",
+
+  "127.0.0.1",
+
+  "::1"
+]);
+
+export function isLocalhost(hostname: string): boolean {
+  return LOCALHOST_NAMES.has(hostname.toLowerCase());
+}
+
+/* -------------------------------------------------------------------------- */
+/* Loopback                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export function isLoopback(hostname: string): boolean {
+  if (hostname === "::1") {
+    return true;
+  }
+
+  return /^127\./.test(hostname);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Local Validation                                                           */
+/* -------------------------------------------------------------------------- */
+
+export function validateLocalhost(
   url: URL,
-  policy: SecurityPolicy
-) {
 
-  const hostname = url.hostname.toLowerCase();
+  options: SecurityOptions = {}
+): SecurityResult {
+  const config = {
+    ...DEFAULT_OPTIONS,
 
-  if (
-    policy.blockedHosts?.includes(hostname)
-  ) {
-    throw new FetchError(
-      FetchErrorCode.BLOCKED_HOST,
-      `Host ${hostname} is blocked`
-    );
+    ...options
+  };
+
+  if (config.allowLocalhost) {
+    return {
+      allowed: true,
+
+      warnings: [],
+
+      violations: []
+    };
   }
 
-  if (
-    policy.allowedHosts &&
-    policy.allowedHosts.length > 0 &&
-    !policy.allowedHosts.includes(hostname)
-  ) {
-    throw new FetchError(
-      FetchErrorCode.BLOCKED_HOST,
-      `${hostname} not in allow list`
-    );
+  if (isLocalhost(url.hostname) || isLoopback(url.hostname)) {
+    return {
+      allowed: false,
+
+      warnings: [],
+
+      violations: ["Localhost access is prohibited."]
+    };
   }
 
-  if (!policy.allowLocalhost) {
+  return {
+    allowed: true,
 
-    if (
-      hostname === "localhost" ||
-      hostname.endsWith(".localhost")
-    ) {
-      throw new FetchError(
-        FetchErrorCode.PRIVATE_NETWORK,
-        "Localhost access denied"
-      );
+    warnings: [],
+
+    violations: []
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* IPv4 Private Networks                                                      */
+/* -------------------------------------------------------------------------- */
+
+const PRIVATE_IPV4 = [
+  /^10\./,
+
+  /^127\./,
+
+  /^169\.254\./,
+
+  /^172\.(1[6-9]|2\d|3[0-1])\./,
+
+  /^192\.168\./,
+
+  /^0\./
+];
+
+/* -------------------------------------------------------------------------- */
+/* IPv6 Private Networks                                                      */
+/* -------------------------------------------------------------------------- */
+
+const PRIVATE_IPV6 = [
+  /^::1$/i,
+
+  /^fc/i,
+
+  /^fd/i,
+
+  /^fe80:/i
+];
+
+/* -------------------------------------------------------------------------- */
+/* IP Detection                                                               */
+/* -------------------------------------------------------------------------- */
+
+export function isIpv4(value: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(value);
+}
+
+export function isIpv6(value: string): boolean {
+  return value.includes(":");
+}
+
+/* -------------------------------------------------------------------------- */
+/* Private Address Detection                                                  */
+/* -------------------------------------------------------------------------- */
+
+export function isPrivateAddress(host: string): boolean {
+  if (isIpv4(host)) {
+    return PRIVATE_IPV4.some((regex) => regex.test(host));
+  }
+
+  if (isIpv6(host)) {
+    return PRIVATE_IPV6.some((regex) => regex.test(host));
+  }
+
+  return false;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Private Network Validation                                                 */
+/* -------------------------------------------------------------------------- */
+
+export function validatePrivateNetwork(
+  url: URL,
+
+  options: SecurityOptions = {}
+): SecurityResult {
+  const config = {
+    ...DEFAULT_OPTIONS,
+
+    ...options
+  };
+
+  if (config.allowPrivateNetworks) {
+    return {
+      allowed: true,
+
+      warnings: [],
+
+      violations: []
+    };
+  }
+
+  if (isPrivateAddress(url.hostname)) {
+    return {
+      allowed: false,
+
+      warnings: [],
+
+      violations: ["Private network access is prohibited."]
+    };
+  }
+
+  return {
+    allowed: true,
+
+    warnings: [],
+
+    violations: []
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* DNS Resolution Hook                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Optional DNS resolution callback.
+ *
+ * fetch.ts can provide a resolver that resolves
+ * hostnames before making the request.
+ */
+
+export type DnsResolver = (hostname: string) => Promise<string[]>;
+
+/* -------------------------------------------------------------------------- */
+/* DNS Validation                                                             */
+/* -------------------------------------------------------------------------- */
+
+export async function validateResolvedAddresses(
+  hostname: string,
+
+  resolver: DnsResolver,
+
+  options: SecurityOptions = {}
+): Promise<SecurityResult> {
+  const config = {
+    ...DEFAULT_OPTIONS,
+
+    ...options
+  };
+
+  if (config.allowPrivateNetworks) {
+    return {
+      allowed: true,
+
+      warnings: [],
+
+      violations: []
+    };
+  }
+
+  const addresses = await resolver(hostname);
+
+  const violations: string[] = [];
+
+  for (const address of addresses) {
+    if (isPrivateAddress(address)) {
+      violations.push(`Resolved private address: ${address}`);
+    }
+  }
+
+  return {
+    allowed: violations.length === 0,
+
+    warnings: [],
+
+    violations
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Redirect Validation                                                        */
+/* -------------------------------------------------------------------------- */
+
+export function validateRedirect(
+  from: URL,
+
+  to: URL,
+
+  options: SecurityOptions = {}
+): SecurityResult {
+  const protocol = validateProtocol(
+    to,
+
+    options
+  );
+
+  if (!protocol.allowed) {
+    return protocol;
+  }
+
+  const localhost = validateLocalhost(
+    to,
+
+    options
+  );
+
+  if (!localhost.allowed) {
+    return localhost;
+  }
+
+  const privateNetwork = validatePrivateNetwork(
+    to,
+
+    options
+  );
+
+  if (!privateNetwork.allowed) {
+    return privateNetwork;
+  }
+
+  return {
+    allowed: true,
+
+    warnings:
+      from.hostname !== to.hostname
+        ? [`Redirected from ${from.hostname} to ${to.hostname}`]
+        : [],
+
+    violations: []
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Content Length                                                             */
+/* -------------------------------------------------------------------------- */
+
+export function validateContentLength(
+  contentLength: number | undefined,
+
+  options: SecurityOptions = {}
+): SecurityResult {
+  const config = {
+    ...DEFAULT_OPTIONS,
+
+    ...options
+  };
+
+  if (contentLength === undefined || contentLength === null) {
+    return {
+      allowed: true,
+
+      warnings: ["Content-Length header missing."],
+
+      violations: []
+    };
+  }
+
+  if (contentLength > config.maxContentLength) {
+    return {
+      allowed: false,
+
+      warnings: [],
+
+      violations: [
+        `Content exceeds maximum allowed size (${config.maxContentLength} bytes).`
+      ]
+    };
+  }
+
+  return {
+    allowed: true,
+
+    warnings: [],
+
+    violations: []
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* MIME Validation                                                            */
+/* -------------------------------------------------------------------------- */
+
+export function validateContentType(
+  contentType: string | undefined,
+
+  allowedTypes?: string[]
+): SecurityResult {
+  if (!contentType || !allowedTypes || allowedTypes.length === 0) {
+    return {
+      allowed: true,
+
+      warnings: [],
+
+      violations: []
+    };
+  }
+
+  const mime = contentType
+
+    .split(";")[0]
+
+    .trim()
+
+    .toLowerCase();
+
+  const allowed = allowedTypes.some(
+    (type) => mime === type || mime.startsWith(`${type}/`)
+  );
+
+  return {
+    allowed,
+
+    warnings: [],
+
+    violations: allowed ? [] : [`Content-Type '${mime}' is not permitted.`]
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* HTTPS Enforcement                                                          */
+/* -------------------------------------------------------------------------- */
+
+export function validateTls(
+  url: URL,
+
+  options: SecurityOptions = {}
+): SecurityResult {
+  const config = {
+    ...DEFAULT_OPTIONS,
+
+    ...options
+  };
+
+  if (url.protocol === "https:") {
+    return {
+      allowed: true,
+
+      warnings: [],
+
+      violations: []
+    };
+  }
+
+  if (config.allowInsecureTls) {
+    return {
+      allowed: true,
+
+      warnings: ["Using insecure HTTP connection."],
+
+      violations: []
+    };
+  }
+
+  return {
+    allowed: false,
+
+    warnings: [],
+
+    violations: ["HTTPS is required."]
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Aggregate                                                                  */
+/* -------------------------------------------------------------------------- */
+
+function mergeResults(...results: SecurityResult[]): SecurityResult {
+  return {
+    allowed: results.every((result) => result.allowed),
+
+    warnings: results.flatMap((result) => result.warnings),
+
+    violations: results.flatMap((result) => result.violations)
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Response Validation                                                        */
+/* -------------------------------------------------------------------------- */
+
+export function validateResponse(
+  response: Response,
+
+  options: SecurityOptions = {}
+): SecurityResult {
+  const contentLength = response.headers.get("content-length");
+
+  const contentType = response.headers.get("content-type") ?? undefined;
+
+  return mergeResults(
+    validateContentLength(
+      contentLength ? Number(contentLength) : undefined,
+
+      options
+    ),
+
+    validateContentType(contentType)
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Wildcard Matching                                                          */
+/* -------------------------------------------------------------------------- */
+
+export function matchesHost(
+  hostname: string,
+
+  pattern: string
+): boolean {
+  hostname = hostname.toLowerCase();
+
+  pattern = pattern.toLowerCase();
+
+  if (pattern === "*") {
+    return true;
+  }
+
+  if (pattern.startsWith("*.")) {
+    const suffix = pattern.slice(1);
+
+    return hostname.endsWith(suffix);
+  }
+
+  return hostname === pattern;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Security Policy                                                            */
+/* -------------------------------------------------------------------------- */
+
+export class SecurityPolicy {
+  constructor(readonly options: SecurityOptions = {}) {}
+
+  isAllowed(url: string): boolean {
+    return securityValidator
+
+      .validate(url).allowed;
+  }
+
+  assert(url: string): void {
+    const result = securityValidator.validate(url);
+
+    if (result.allowed) {
+      return;
     }
 
+    throw new Error(result.violations.join("\n"));
   }
-
-  if (ipaddr.isValid(hostname)) {
-
-    const ip = ipaddr.parse(hostname);
-
-    validateIPAddress(ip, policy);
-
-  }
-
 }
 
-/**
- * Validate numeric IP addresses.
- */
-export function validateIPAddress(
-  ip: ipaddr.IPv4 | ipaddr.IPv6,
-  policy: SecurityPolicy
-) {
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
 
-  const range = ip.range();
-
-  if (
-    policy.allowPrivateIPs
-  ) {
-    return;
-  }
-
-  switch (range) {
-
-    case "loopback":
-    case "private":
-    case "linkLocal":
-    case "carrierGradeNat":
-    case "uniqueLocal":
-    case "unspecified":
-    case "broadcast":
-    case "reserved":
-    case "multicast":
-
-      throw new FetchError(
-        FetchErrorCode.PRIVATE_NETWORK,
-        `IP range '${range}' is blocked`
-      );
-
-  }
-
+export function createSecurityValidator(
+  options?: SecurityOptions
+): SecurityValidator {
+  return new SecurityValidator(options);
 }
 
-/**
- * Validate destination port.
- */
-export function validatePort(
-  url: URL,
-  policy: SecurityPolicy
-) {
-
-  const port =
-    url.port.length > 0
-      ? Number(url.port)
-      : url.protocol === "https:"
-      ? 443
-      : 80;
-
-  if (
-    DEFAULT_BLOCKED_PORTS.has(port)
-  ) {
-    throw new FetchError(
-      FetchErrorCode.BLOCKED_HOST,
-      `Port ${port} is blocked`
-    );
-  }
-
-  if (
-    !DEFAULT_ALLOWED_PORTS.has(port)
-  ) {
-    throw new FetchError(
-      FetchErrorCode.BLOCKED_HOST,
-      `Port ${port} is not permitted`
-    );
-  }
-
+export function createSecurityPolicy(
+  options?: SecurityOptions
+): SecurityPolicy {
+  return new SecurityPolicy(options);
 }
 
-/**
- * Validate redirect chain.
- */
-export function validateRedirectChain(
-  redirects: string[],
-  policy: SecurityPolicy
-) {
+/* -------------------------------------------------------------------------- */
+/* Convenience                                                                */
+/* -------------------------------------------------------------------------- */
 
-  const max =
-    policy.maxRedirects ?? 10;
-
-  if (
-    redirects.length > max
-  ) {
-    throw new FetchError(
-      FetchErrorCode.TOO_MANY_REDIRECTS,
-      `Exceeded ${max} redirects`
-    );
-  }
-
-  for (const redirect of redirects) {
-
-    validateUrl(redirect, policy);
-
-  }
-
-}
-
-/**
- * Returns true if URL can be fetched.
- */
-export function isAllowed(
+export function validateRequest(
   url: string,
-  policy?: SecurityPolicy
-): boolean {
 
-  try {
-
-    validateUrl(url, policy);
-
-    return true;
-
-  } catch {
-
-    return false;
-
-  }
-
+  options?: SecurityOptions
+): SecurityResult {
+  return createSecurityValidator(options).validate(url);
 }
+
+export function assertSafeUrl(
+  url: string,
+
+  options?: SecurityOptions
+): void {
+  createSecurityPolicy(options).assert(url);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Default Export                                                             */
+/* -------------------------------------------------------------------------- */
+
+export default {
+  SecurityValidator,
+
+  SecurityPolicy,
+
+  createSecurityValidator,
+
+  createSecurityPolicy,
+
+  validateRequest,
+
+  validateResponse,
+
+  validateUrl,
+
+  validateProtocol,
+
+  validateHostname,
+
+  validateLocalhost,
+
+  validatePrivateNetwork,
+
+  validateRedirect,
+
+  validateContentLength,
+
+  validateContentType,
+
+  validateTls,
+
+  isAllowedProtocol,
+
+  isLocalhost,
+
+  isLoopback,
+
+  isIpv4,
+
+  isIpv6,
+
+  isPrivateAddress,
+
+  matchesHost,
+
+  assertSafeUrl
+};

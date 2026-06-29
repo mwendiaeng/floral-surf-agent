@@ -1,475 +1,777 @@
 /**
- * Retry Engine
+ * fetch/retry.ts
  *
- * Production-grade retry utility supporting:
- *
- * ✔ Exponential Backoff
- * ✔ Optional Jitter
- * ✔ Retry-After header
- * ✔ Retry predicates
- * ✔ AbortSignal
- * ✔ Maximum elapsed time
- * ✔ Hooks
+ * Retry policies and execution.
  */
 
-import {
-  RetryOptions,
-} from "./types";
+import type { RetryContext, RetryOptions } from "./types";
 
-export interface RetryContext {
+/* -------------------------------------------------------------------------- */
+/* Strategy                                                                   */
+/* -------------------------------------------------------------------------- */
 
-  attempt: number;
+export type RetryStrategy = "fixed" | "linear" | "exponential" | "decorrelated";
 
-  maxAttempts: number;
+/* -------------------------------------------------------------------------- */
+/* Retry Decision                                                             */
+/* -------------------------------------------------------------------------- */
 
-  error?: unknown;
+export interface RetryDecision {
+  retry: boolean;
 
-  response?: Response;
+  delay: number;
 
-  delayMs: number;
-
+  reason?: string;
 }
 
-export interface RetryHooks {
+/* -------------------------------------------------------------------------- */
+/* Retry Policy                                                               */
+/* -------------------------------------------------------------------------- */
 
-  beforeAttempt?(
-    ctx: RetryContext
-  ): Promise<void> | void;
+export interface RetryPolicy {
+  strategy: RetryStrategy;
 
-  afterAttempt?(
-    ctx: RetryContext
-  ): Promise<void> | void;
+  retries: number;
 
-  beforeRetry?(
-    ctx: RetryContext
-  ): Promise<void> | void;
+  initialDelay: number;
 
-  exhausted?(
-    ctx: RetryContext
-  ): Promise<void> | void;
+  maxDelay: number;
 
+  factor: number;
+
+  jitter: boolean;
 }
 
-export interface RetryExecutorOptions<T>
-  extends RetryOptions {
+/* -------------------------------------------------------------------------- */
+/* Defaults                                                                   */
+/* -------------------------------------------------------------------------- */
 
-  operation: () => Promise<T>;
+const DEFAULT_POLICY: RetryPolicy = {
+  strategy: "exponential",
 
-  shouldRetry?: (
-    error: unknown,
-    attempt: number
-  ) => boolean;
+  retries: 3,
 
-  shouldRetryResponse?: (
-    response: Response,
-    attempt: number
-  ) => boolean;
+  initialDelay: 500,
 
-  hooks?: RetryHooks;
+  maxDelay: 30_000,
 
-  abortSignal?: AbortSignal;
+  factor: 2,
 
-  maxElapsedTimeMs?: number;
-
-  jitter?: boolean;
-
-}
-
-const DEFAULT_OPTIONS: Required<
-  Omit<
-    RetryExecutorOptions<unknown>,
-    | "operation"
-    | "shouldRetry"
-    | "shouldRetryResponse"
-    | "hooks"
-    | "abortSignal"
-  >
-> = {
-
-  enabled: true,
-
-  maxAttempts: 3,
-
-  initialDelayMs: 250,
-
-  maxDelayMs: 5000,
-
-  multiplier: 2,
-
-  retryOnNetworkError: true,
-
-  retryOnStatus: [
-    429,
-    500,
-    502,
-    503,
-    504,
-  ],
-
-  maxElapsedTimeMs: 30000,
-
-  jitter: true,
-
+  jitter: true
 };
 
-export async function retry<T>(
-  options: RetryExecutorOptions<T>
-): Promise<T> {
+/* -------------------------------------------------------------------------- */
+/* Executor                                                                   */
+/* -------------------------------------------------------------------------- */
 
-  const config = {
-    ...DEFAULT_OPTIONS,
-    ...options,
-  };
+export class RetryExecutor {
+  constructor(readonly policy: RetryPolicy = DEFAULT_POLICY) {}
 
-  const started = Date.now();
+  /* -------------------------------------------------------------------------- */
+  /* Retry Execution                                                            */
+  /* -------------------------------------------------------------------------- */
 
-  let delay =
-    config.initialDelayMs;
+  async execute<T>(
+    operation: (context: RetryContext) => Promise<T>
+  ): Promise<T> {
+    let lastError: unknown;
 
-  let lastError: unknown;
+    let previousDelay = this.policy.initialDelay;
 
-  for (
-    let attempt = 1;
-    attempt <= config.maxAttempts;
-    attempt++
-  ) {
+    for (let attempt = 1; attempt <= this.policy.retries + 1; attempt++) {
+      const context: RetryContext = {
+        attempt,
 
-    if (
-      config.abortSignal?.aborted
-    ) {
-      throw new DOMException(
-        "Operation aborted",
-        "AbortError"
-      );
-    }
+        maxAttempts: this.policy.retries + 1,
 
-    const ctx: RetryContext = {
+        delay: previousDelay,
 
-      attempt,
+        lastError
+      };
 
-      maxAttempts:
-        config.maxAttempts,
+      try {
+        return await operation(context);
+      } catch (error) {
+        lastError = error;
 
-      delayMs: delay,
+        const decision = createRetryDecision(
+          context,
 
-      error: lastError,
+          this.policy,
 
-    };
+          error
+        );
 
-    await config.hooks?.beforeAttempt?.(
-      ctx
-    );
-
-    try {
-
-      const result =
-        await config.operation();
-
-      if (
-        result instanceof Response &&
-        config.shouldRetryResponse
-      ) {
-
-        if (
-          config.shouldRetryResponse(
-            result,
-            attempt
-          )
-        ) {
-
-          if (
-            attempt >=
-            config.maxAttempts
-          ) {
-
-            await config.hooks?.exhausted?.(
-              ctx
-            );
-
-            return result as T;
-
-          }
-
-          delay =
-            calculateDelay(
-              delay,
-              config
-            );
-
-          await config.hooks?.beforeRetry?.({
-            ...ctx,
-            response: result,
-            delayMs: delay,
-          });
-
-          await sleep(
-            delay,
-            config.abortSignal
-          );
-
-          continue;
-
+        if (!decision.retry) {
+          throw error;
         }
 
+        previousDelay = decision.delay;
+
+        await sleep(decision.delay);
       }
-
-      await config.hooks?.afterAttempt?.(
-        ctx
-      );
-
-      return result;
-
-    } catch (error) {
-
-      lastError = error;
-
-      if (
-        !config.enabled
-      ) {
-        throw error;
-      }
-
-      if (
-        Date.now() -
-          started >
-        config.maxElapsedTimeMs
-      ) {
-
-        throw error;
-
-      }
-
-      const shouldRetry =
-
-        config.shouldRetry
-          ? config.shouldRetry(
-              error,
-              attempt
-            )
-          : defaultRetryPredicate(
-              error
-            );
-
-      if (
-        !shouldRetry ||
-        attempt >=
-          config.maxAttempts
-      ) {
-
-        await config.hooks?.exhausted?.(
-          {
-            ...ctx,
-            error,
-          }
-        );
-
-        throw error;
-
-      }
-
-      delay =
-        calculateDelay(
-          delay,
-          config
-        );
-
-      await config.hooks?.beforeRetry?.({
-        ...ctx,
-        error,
-        delayMs: delay,
-      });
-
-      await sleep(
-        delay,
-        config.abortSignal
-      );
-
     }
 
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("Retry operation failed.");
   }
-
-  throw lastError;
-
 }
 
-function calculateDelay(
+/* -------------------------------------------------------------------------- */
+/* Convenience                                                                */
+/* -------------------------------------------------------------------------- */
 
-  current: number,
+export async function retry<T>(
+  operation: (context: RetryContext) => Promise<T>,
 
-  options: {
+  policy?: Partial<RetryPolicy>
+): Promise<T> {
+  const executor = new RetryExecutor({
+    ...DEFAULT_POLICY,
 
-    multiplier: number;
+    ...policy
+  });
 
-    maxDelayMs: number;
+  return executor.execute(operation);
+}
 
-    jitter: boolean;
+/* -------------------------------------------------------------------------- */
+/* Retry Response                                                             */
+/* -------------------------------------------------------------------------- */
 
-  }
+export async function retryResponse(
+  operation: (context: RetryContext) => Promise<Response>,
 
+  options?: RetryOptions
+): Promise<Response> {
+  const executor = new RetryExecutor({
+    strategy: "exponential",
+
+    retries: options?.retries ?? DEFAULT_POLICY.retries,
+
+    initialDelay: options?.initialDelay ?? DEFAULT_POLICY.initialDelay,
+
+    maxDelay: options?.maxDelay ?? DEFAULT_POLICY.maxDelay,
+
+    factor: options?.factor ?? DEFAULT_POLICY.factor,
+
+    jitter: options?.jitter ?? DEFAULT_POLICY.jitter
+  });
+
+  return executor.execute(operation);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Async Predicate                                                            */
+/* -------------------------------------------------------------------------- */
+
+export async function retryUntil<T>(
+  operation: (context: RetryContext) => Promise<T>,
+
+  predicate: (value: T) => boolean,
+
+  policy?: Partial<RetryPolicy>
+): Promise<T> {
+  return retry(
+    async (context) => {
+      const value = await operation(context);
+
+      if (predicate(value)) {
+        return value;
+      }
+
+      throw new Error("Retry predicate failed.");
+    },
+
+    policy
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Fixed                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export function fixedDelay(
+  policy: RetryPolicy,
+
+  _attempt: number
 ): number {
+  return policy.initialDelay;
+}
 
-  let next = Math.min(
+/* -------------------------------------------------------------------------- */
+/* Linear                                                                     */
+/* -------------------------------------------------------------------------- */
 
-    current *
-      options.multiplier,
+export function linearDelay(
+  policy: RetryPolicy,
 
-    options.maxDelayMs
+  attempt: number
+): number {
+  return Math.min(
+    policy.initialDelay * attempt,
 
+    policy.maxDelay
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Exponential                                                                */
+/* -------------------------------------------------------------------------- */
+
+export function exponentialDelay(
+  policy: RetryPolicy,
+
+  attempt: number
+): number {
+  return Math.min(
+    policy.initialDelay *
+      Math.pow(
+        policy.factor,
+
+        Math.max(
+          0,
+
+          attempt - 1
+        )
+      ),
+
+    policy.maxDelay
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Full Jitter                                                                */
+/* -------------------------------------------------------------------------- */
+
+export function fullJitter(delay: number): number {
+  return Math.floor(Math.random() * delay);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Equal Jitter                                                               */
+/* -------------------------------------------------------------------------- */
+
+export function equalJitter(delay: number): number {
+  const half = delay / 2;
+
+  return Math.floor(half + Math.random() * half);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Decorrelated Jitter                                                        */
+/* -------------------------------------------------------------------------- */
+
+export function decorrelatedJitter(
+  previousDelay: number,
+
+  policy: RetryPolicy
+): number {
+  const minimum = policy.initialDelay;
+
+  const maximum = Math.max(
+    minimum,
+
+    previousDelay * 3
   );
 
-  if (
-    options.jitter
-  ) {
+  return Math.min(
+    policy.maxDelay,
 
-    next =
-      Math.random() *
-      next;
-
-  }
-
-  return Math.round(next);
-
+    Math.floor(minimum + Math.random() * (maximum - minimum))
+  );
 }
 
-function defaultRetryPredicate(
+/* -------------------------------------------------------------------------- */
+/* Delay Dispatcher                                                           */
+/* -------------------------------------------------------------------------- */
 
-  error: unknown
+export function calculateRetryDelay(
+  policy: RetryPolicy,
 
-): boolean {
+  attempt: number,
 
-  if (
-    error instanceof TypeError
-  ) {
+  previousDelay = policy.initialDelay
+): number {
+  let delay: number;
 
-    return true;
+  switch (policy.strategy) {
+    case "fixed":
+      delay = fixedDelay(
+        policy,
 
+        attempt
+      );
+
+      break;
+
+    case "linear":
+      delay = linearDelay(
+        policy,
+
+        attempt
+      );
+
+      break;
+
+    case "decorrelated":
+      delay = decorrelatedJitter(
+        previousDelay,
+
+        policy
+      );
+
+      break;
+
+    case "exponential":
+
+    default:
+      delay = exponentialDelay(
+        policy,
+
+        attempt
+      );
+
+      break;
   }
 
-  if (
-    error instanceof DOMException &&
-    error.name !==
-      "AbortError"
-  ) {
-
-    return true;
-
+  if (policy.jitter && policy.strategy !== "decorrelated") {
+    delay = equalJitter(delay);
   }
 
-  return false;
+  return Math.min(
+    delay,
 
+    policy.maxDelay
+  );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Sleep                                                                      */
+/* -------------------------------------------------------------------------- */
 
 export async function sleep(
-
-  ms: number,
+  milliseconds: number,
 
   signal?: AbortSignal
-
 ): Promise<void> {
-
-  if (
-    ms <= 0
-  ) {
-
+  if (milliseconds <= 0) {
     return;
-
   }
 
   return new Promise(
     (
       resolve,
+
       reject
     ) => {
-
-      const id =
-        setTimeout(
-          resolve,
-          ms
-        );
-
-      signal?.addEventListener(
-        "abort",
+      const timer = setTimeout(
         () => {
+          cleanup();
 
-          clearTimeout(
-            id
-          );
-
-          reject(
-            new DOMException(
-              "Aborted",
-              "AbortError"
-            )
-          );
-
+          resolve();
         },
-        {
-          once: true,
-        }
+
+        milliseconds
       );
 
+      const cleanup = () => {
+        clearTimeout(timer);
+
+        signal?.removeEventListener(
+          "abort",
+
+          abort
+        );
+      };
+
+      const abort = () => {
+        cleanup();
+
+        reject(
+          new DOMException(
+            "Operation aborted",
+
+            "AbortError"
+          )
+        );
+      };
+
+      if (signal) {
+        if (signal.aborted) {
+          abort();
+
+          return;
+        }
+
+        signal.addEventListener(
+          "abort",
+
+          abort,
+
+          {
+            once: true
+          }
+        );
+      }
     }
   );
-
 }
 
-/**
- * Parses Retry-After header.
- */
-export function parseRetryAfter(
-  value: string | null
-): number | null {
+/* -------------------------------------------------------------------------- */
+/* Retryable Status Codes                                                     */
+/* -------------------------------------------------------------------------- */
 
+const DEFAULT_RETRY_STATUS = new Set([
+  408,
+
+  409,
+
+  425,
+
+  429,
+
+  500,
+
+  502,
+
+  503,
+
+  504
+]);
+
+/* -------------------------------------------------------------------------- */
+/* Network Errors                                                             */
+/* -------------------------------------------------------------------------- */
+
+export function isNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+
+  return (
+    message.includes("network") ||
+    message.includes("fetch") ||
+    message.includes("socket") ||
+    message.includes("connection") ||
+    message.includes("timeout") ||
+    message.includes("econnreset") ||
+    message.includes("econnrefused") ||
+    message.includes("enotfound") ||
+    message.includes("ehostunreach") ||
+    message.includes("etimedout")
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Retryable HTTP Status                                                      */
+/* -------------------------------------------------------------------------- */
+
+export function isRetryableStatus(
+  status: number,
+
+  options?: RetryOptions
+): boolean {
+  const allowed = new Set(options?.retryOn ?? DEFAULT_RETRY_STATUS);
+
+  return allowed.has(status);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Retry-After                                                                */
+/* -------------------------------------------------------------------------- */
+
+export function parseRetryAfter(value?: string | null): number | undefined {
   if (!value) {
-
-    return null;
-
+    return;
   }
 
-  const seconds =
-    Number(value);
+  /*
+   * Numeric seconds.
+   */
 
-  if (
-    !Number.isNaN(seconds)
-  ) {
+  const seconds = Number(value);
 
-    return (
-      seconds * 1000
-    );
-
+  if (Number.isFinite(seconds)) {
+    return seconds * 1000;
   }
 
-  const date =
-    Date.parse(value);
+  /*
+   * HTTP date.
+   */
 
-  if (
-    Number.isNaN(date)
-  ) {
+  const timestamp = Date.parse(value);
 
-    return null;
-
+  if (Number.isNaN(timestamp)) {
+    return;
   }
 
   return Math.max(
-    date -
-      Date.now(),
-    0
-  );
+    0,
 
+    timestamp - Date.now()
+  );
 }
 
-/**
- * Standard HTTP retry predicate.
- */
-export function shouldRetryHttp(
-  response: Response,
-  options: RetryOptions
+/* -------------------------------------------------------------------------- */
+/* Retry Decision                                                             */
+/* -------------------------------------------------------------------------- */
+
+export function shouldRetry(
+  context: RetryContext,
+
+  error?: unknown,
+
+  response?: Response,
+
+  options?: RetryOptions
 ): boolean {
+  if (context.attempt >= context.maxAttempts) {
+    return false;
+  }
 
-  return (
-    options.retryOnStatus?.includes(
-      response.status
-    ) ?? false
+  if (error) {
+    return isNetworkError(error);
+  }
+
+  if (response) {
+    return isRetryableStatus(
+      response.status,
+
+      options
+    );
+  }
+
+  return false;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Decision Builder                                                           */
+/* -------------------------------------------------------------------------- */
+
+export function createRetryDecision(
+  context: RetryContext,
+
+  policy: RetryPolicy,
+
+  error?: unknown,
+
+  response?: Response,
+
+  options?: RetryOptions
+): RetryDecision {
+  const retry = shouldRetry(
+    context,
+
+    error,
+
+    response,
+
+    options
   );
 
+  if (!retry) {
+    return {
+      retry: false,
+
+      delay: 0,
+
+      reason: "Retry conditions not met."
+    };
+  }
+
+  /*
+   * Honor Retry-After if present.
+   */
+
+  const retryAfter = parseRetryAfter(response?.headers.get("retry-after"));
+
+  const delay =
+    retryAfter ??
+    calculateRetryDelay(
+      policy,
+
+      context.attempt,
+
+      context.delay
+    );
+
+  return {
+    retry: true,
+
+    delay,
+
+    reason: error ? "Network error" : `HTTP ${response?.status}`
+  };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Circuit Breaker                                                            */
+/* -------------------------------------------------------------------------- */
+
+export type CircuitState = "closed" | "open" | "half-open";
+
+export interface CircuitBreakerOptions {
+  failureThreshold?: number;
+
+  successThreshold?: number;
+
+  timeout?: number;
+}
+
+export class CircuitBreaker {
+  private state: CircuitState = "closed";
+
+  private failures = 0;
+
+  private successes = 0;
+
+  private nextAttempt = 0;
+
+  constructor(private readonly options: CircuitBreakerOptions = {}) {}
+
+  getState(): CircuitState {
+    return this.state;
+  }
+
+  reset(): void {
+    this.state = "closed";
+
+    this.failures = 0;
+
+    this.successes = 0;
+
+    this.nextAttempt = 0;
+  }
+
+  private open(): void {
+    this.state = "open";
+
+    this.nextAttempt = Date.now() + (this.options.timeout ?? 30_000);
+  }
+
+  private halfOpen(): void {
+    this.state = "half-open";
+
+    this.successes = 0;
+  }
+
+  private close(): void {
+    this.reset();
+  }
+
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.state === "open") {
+      if (Date.now() < this.nextAttempt) {
+        throw new Error("Circuit breaker is open.");
+      }
+
+      this.halfOpen();
+    }
+
+    try {
+      const result = await operation();
+
+      if (this.state === "half-open") {
+        this.successes++;
+
+        if (this.successes >= (this.options.successThreshold ?? 1)) {
+          this.close();
+        }
+      } else {
+        this.failures = 0;
+      }
+
+      return result;
+    } catch (error) {
+      this.failures++;
+
+      if (this.failures >= (this.options.failureThreshold ?? 5)) {
+        this.open();
+      }
+
+      throw error;
+    }
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Metrics                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export interface RetryMetrics {
+  attempts: number;
+
+  retries: number;
+
+  successes: number;
+
+  failures: number;
+
+  totalDelay: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Retry Builder                                                              */
+/* -------------------------------------------------------------------------- */
+
+export function createRetryExecutor(
+  policy?: Partial<RetryPolicy>
+): RetryExecutor {
+  return new RetryExecutor({
+    ...DEFAULT_POLICY,
+
+    ...policy
+  });
+}
+
+export function createCircuitBreaker(
+  options?: CircuitBreakerOptions
+): CircuitBreaker {
+  return new CircuitBreaker(options);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Predicates                                                                 */
+/* -------------------------------------------------------------------------- */
+
+export function isRetryableError(error: unknown): boolean {
+  return isNetworkError(error);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Default Export                                                             */
+/* -------------------------------------------------------------------------- */
+
+export default {
+  RetryExecutor,
+
+  CircuitBreaker,
+
+  retry,
+
+  retryUntil,
+
+  retryResponse,
+
+  createRetryExecutor,
+
+  createCircuitBreaker,
+
+  calculateRetryDelay,
+
+  createRetryDecision,
+
+  shouldRetry,
+
+  isRetryableStatus,
+
+  isRetryableError,
+
+  parseRetryAfter,
+
+  sleep
+};
