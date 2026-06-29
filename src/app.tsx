@@ -14,8 +14,9 @@ import {
   Text
 } from "@cloudflare/kumo";
 import { Toasty, useKumoToastManager } from "@cloudflare/kumo/components/toast";
-import { Streamdown } from "streamdown";
-import { code } from "@streamdown/code";
+import { MarkdownMessage } from "./components/chat/MarkdownMessage";
+import { MessageActions } from "./components/chat/MessageActions";
+import { exportConversation } from "./lib/chat-export";
 import {
   PaperPlaneRightIcon,
   StopIcon,
@@ -36,10 +37,9 @@ import {
   XIcon,
   WrenchIcon,
   PaperclipIcon,
-  ImageIcon
+  DownloadSimpleIcon,
+  ImageIcon,
 } from "@phosphor-icons/react";
-
-// ── Attachment helpers ────────────────────────────────────────────────
 
 interface Attachment {
   id: string;
@@ -95,6 +95,18 @@ function ThemeToggle() {
 
 // ── Tool rendering ────────────────────────────────────────────────────
 
+function formatToolOutput(output: unknown): string {
+  if (typeof output === "string") {
+    return output;
+  }
+
+  try {
+    return JSON.stringify(output, null, 2);
+  } catch {
+    return String(output);
+  }
+}
+
 function ToolPartView({
   part,
   addToolApprovalResponse
@@ -120,10 +132,10 @@ function ToolPartView({
             </Text>
             <Badge variant="secondary">Done</Badge>
           </div>
-          <div className="font-mono">
-            <Text size="xs" variant="secondary">
-              {JSON.stringify(part.output, null, 2)}
-            </Text>
+          <div className="font-mono overflow-auto max-h-80">
+            <pre className="text-xs whitespace-pre-wrap break-words">
+              {formatToolOutput(part.output)}
+            </pre>
           </div>
         </Surface>
       </div>
@@ -632,7 +644,7 @@ function Chat() {
 
                     {/* Tool Summary */}
                     {mcpToolCount > 0 && (
-                      <div className="pt-2 border-t border-kumo-line">
+                      <div className="pt-2 border-t border-kumo-line space-y-2">
                         <div className="flex items-center gap-2">
                           <WrenchIcon size={14} className="text-kumo-subtle" />
                           <span className="text-xs text-kumo-subtle">
@@ -641,12 +653,27 @@ function Chat() {
                             servers
                           </span>
                         </div>
+                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                          {mcpState.tools.map((tool) => (
+                            <Badge key={tool.name} variant="secondary">
+                              {tool.name}
+                            </Badge>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </Surface>
                 </div>
               )}
             </div>
+            <Button
+              variant="secondary"
+              icon={<DownloadSimpleIcon size={16} />}
+              disabled={messages.length === 0}
+              onClick={() => exportConversation(messages)}
+            >
+              Export
+            </Button>
             <Button
               variant="secondary"
               icon={<TrashIcon size={16} />}
@@ -669,8 +696,8 @@ function Chat() {
                 <div className="flex flex-wrap justify-center gap-2">
                   {[
                     "What's the weather in Paris?",
-                    "What timezone am I in?",
-                    "Calculate 5000 * 3",
+                    "Run JavaScript: [1,2,3].map(n => n ** 2).join(', ')",
+                    "Format this JSON: {\"a\":1,\"b\":[2,3]}",
                     "Remind me in 5 minutes to take a break"
                   ].map((prompt) => (
                     <Button
@@ -699,7 +726,7 @@ function Chat() {
               message.role === "assistant" && index === messages.length - 1;
 
             return (
-              <div key={message.id} className="space-y-2">
+              <div key={message.id} className="space-y-2 group">
                 {showDebug && (
                   <pre className="text-[11px] text-kumo-subtle bg-kumo-control rounded-lg p-3 overflow-auto max-h-64">
                     {JSON.stringify(message, null, 2)}
@@ -790,26 +817,28 @@ function Chat() {
 
                     if (isUser) {
                       return (
-                        <div key={i} className="flex justify-end">
-                          <div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-md bg-kumo-contrast text-kumo-inverse leading-relaxed">
-                            {text}
+                        <div key={i} className="flex flex-col items-end gap-1">
+                          <div className="flex justify-end w-full">
+                            <MarkdownMessage
+                              content={text}
+                              variant="user"
+                            />
                           </div>
+                          <MessageActions message={message} index={index} />
                         </div>
                       );
                     }
 
                     return (
-                      <div key={i} className="flex justify-start">
-                        <div className="max-w-[85%] rounded-2xl rounded-bl-md bg-kumo-base text-kumo-default leading-relaxed">
-                          <Streamdown
-                            className="sd-theme rounded-2xl rounded-bl-md p-3"
-                            plugins={{ code }}
-                            controls={false}
+                      <div key={i} className="flex flex-col items-start gap-1">
+                        <div className="flex justify-start w-full">
+                          <MarkdownMessage
+                            content={text}
+                            variant="assistant"
                             isAnimating={isLastAssistant && isStreaming}
-                          >
-                            {text}
-                          </Streamdown>
+                          />
                         </div>
+                        <MessageActions message={message} index={index} />
                       </div>
                     );
                   })}
