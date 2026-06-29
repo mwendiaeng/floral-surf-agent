@@ -1,272 +1,166 @@
-/**
- * fetch/readability.ts
- *
- * Clean article extraction using Mozilla Readability.
- *
- * Features:
- *  - Removes navigation
- *  - Removes ads
- *  - Removes sidebars
- *  - Removes scripts
- *  - Extracts article body
- *  - HTML → Markdown
- *  - Metadata extraction
- *  - Reading time
- *  - Word count
- */
+// /**
+//  * fetch/readability.ts
+//  *
+//  * Clean article extraction using Mozilla Readability.
+//  *
+//  * Features:
+//  *  - Removes navigation
+//  *  - Removes ads
+//  *  - Removes sidebars
+//  *  - Removes scripts
+//  *  - Extracts article body
+//  *  - HTML → Markdown
+//  *  - Metadata extraction
+//  *  - Reading time
+//  *  - Word count
+//  */
 
-import { JSDOM } from "jsdom";
-import { Readability } from "@mozilla/readability";
-import TurndownService from "turndown";
+// import { JSDOM } from "jsdom";
+// import { Readability } from "@mozilla/readability";
+// import TurndownService from "turndown";
 
-import {
-    ReadabilityResult,
-} from "./types";
+// import type { ReadabilityResult } from "./types";
 
-const turndown = new TurndownService({
+// const turndown = new TurndownService({
+//   headingStyle: "atx",
 
-    headingStyle: "atx",
+//   codeBlockStyle: "fenced",
 
-    codeBlockStyle: "fenced",
+//   bulletListMarker: "-"
+// });
 
-    bulletListMarker: "-",
+// export interface ReadabilityOptions {
+//   preserveLinks?: boolean;
 
-});
+//   preserveImages?: boolean;
 
-export interface ReadabilityOptions {
+//   preserveTables?: boolean;
+// }
 
-    preserveLinks?: boolean;
+// export function extractReadableArticle(
+//   html: string,
 
-    preserveImages?: boolean;
+//   options: ReadabilityOptions = {}
+// ): ReadabilityResult {
+//   const dom = new JSDOM(html);
 
-    preserveTables?: boolean;
+//   const reader = new Readability(dom.window.document);
 
-}
+//   const article = reader.parse();
 
-export function extractReadableArticle(
+//   if (!article) {
+//     return {
+//       title: "",
 
-    html: string,
+//       content: "",
 
-    options: ReadabilityOptions = {}
+//       textContent: "",
 
-): ReadabilityResult {
+//       markdown: "",
 
-    const dom = new JSDOM(html);
+//       excerpt: "",
 
-    const reader =
-        new Readability(
-            dom.window.document
-        );
+//       byline: "",
 
-    const article =
-        reader.parse();
+//       language: detectLanguage(dom.window.document.documentElement.lang),
 
-    if (!article) {
+//       length: 0,
 
-        return {
+//       wordCount: 0,
 
-            title: "",
+//       readingTimeMinutes: 0
+//     };
+//   }
 
-            content: "",
+//   let cleanedHtml = article.content;
 
-            textContent: "",
+//   if (!options.preserveImages) {
+//     cleanedHtml = cleanedHtml.replace(/<img[\s\S]*?>/gi, "");
+//   }
 
-            markdown: "",
+//   if (!options.preserveTables) {
+//     cleanedHtml = cleanedHtml.replace(/<table[\s\S]*?<\/table>/gi, "");
+//   }
 
-            excerpt: "",
+//   if (!options.preserveLinks) {
+//     cleanedHtml = cleanedHtml
+//       .replace(/<a\b[^>]*>/gi, "")
+//       .replace(/<\/a>/gi, "");
+//   }
 
-            byline: "",
+//   const markdown = turndown.turndown(cleanedHtml);
 
-            language: detectLanguage(
-                dom.window.document.documentElement.lang
-            ),
+//   const wordCount = countWords(article.textContent);
 
-            length: 0,
+//   return {
+//     title: article.title,
 
-            wordCount: 0,
+//     byline: article.byline,
 
-            readingTimeMinutes: 0,
+//     excerpt: article.excerpt,
 
-        };
+//     content: cleanedHtml,
 
-    }
+//     markdown,
 
-    let cleanedHtml =
-        article.content;
+//     textContent: article.textContent,
 
-    if (!options.preserveImages) {
+//     language: detectLanguage(dom.window.document.documentElement.lang),
 
-        cleanedHtml =
-            cleanedHtml.replace(
-                /<img[\s\S]*?>/gi,
-                ""
-            );
+//     length: article.length,
 
-    }
+//     wordCount,
 
-    if (!options.preserveTables) {
+//     readingTimeMinutes: estimateReadingTime(wordCount)
+//   };
+// }
 
-        cleanedHtml =
-            cleanedHtml.replace(
-                /<table[\s\S]*?<\/table>/gi,
-                ""
-            );
+// /**
+//  * Estimate reading time.
+//  */
+// export function estimateReadingTime(
+//   words: number,
 
-    }
+//   wpm = 225
+// ): number {
+//   return Math.max(
+//     1,
 
-    if (!options.preserveLinks) {
+//     Math.ceil(words / wpm)
+//   );
+// }
 
-        cleanedHtml =
-            cleanedHtml.replace(
-                /<a\b[^>]*>/gi,
-                ""
-            ).replace(
-                /<\/a>/gi,
-                ""
-            );
+// /**
+//  * Count words.
+//  */
+// export function countWords(text: string): number {
+//   return text.trim().split(/\s+/).filter(Boolean).length;
+// }
 
-    }
+// /**
+//  * Detect language.
+//  */
+// export function detectLanguage(lang?: string): string {
+//   if (!lang) {
+//     return "unknown";
+//   }
 
-    const markdown =
-        turndown.turndown(
-            cleanedHtml
-        );
+//   return lang.split("-")[0].toLowerCase();
+// }
 
-    const wordCount =
-        countWords(
-            article.textContent
-        );
+// /**
+//  * Strip HTML.
+//  */
+// export function stripHtml(html: string): string {
+//   return html
 
-    return {
+//     .replace(/<script[\s\S]*?<\/script>/gi, "")
 
-        title:
-            article.title,
+//     .replace(/<style[\s\S]*?<\/style>/gi, "")
 
-        byline:
-            article.byline,
+//     .replace(/<[^>]+>/g, " ")
 
-        excerpt:
-            article.excerpt,
+//     .replace(/\s+/g, " ")
 
-        content:
-            cleanedHtml,
-
-        markdown,
-
-        textContent:
-            article.textContent,
-
-        language:
-            detectLanguage(
-                dom.window.document.documentElement.lang
-            ),
-
-        length:
-            article.length,
-
-        wordCount,
-
-        readingTimeMinutes:
-            estimateReadingTime(
-                wordCount
-            ),
-
-    };
-
-}
-
-/**
- * Estimate reading time.
- */
-export function estimateReadingTime(
-
-    words: number,
-
-    wpm = 225
-
-): number {
-
-    return Math.max(
-
-        1,
-
-        Math.ceil(
-            words / wpm
-        )
-
-    );
-
-}
-
-/**
- * Count words.
- */
-export function countWords(
-
-    text: string
-
-): number {
-
-    return text
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean)
-        .length;
-
-}
-
-/**
- * Detect language.
- */
-export function detectLanguage(
-
-    lang?: string
-
-): string {
-
-    if (!lang) {
-
-        return "unknown";
-
-    }
-
-    return lang
-        .split("-")[0]
-        .toLowerCase();
-
-}
-
-/**
- * Strip HTML.
- */
-export function stripHtml(
-
-    html: string
-
-): string {
-
-    return html
-
-        .replace(
-            /<script[\s\S]*?<\/script>/gi,
-            ""
-        )
-
-        .replace(
-            /<style[\s\S]*?<\/style>/gi,
-            ""
-        )
-
-        .replace(
-            /<[^>]+>/g,
-            " "
-        )
-
-        .replace(
-            /\s+/g,
-            " "
-        )
-
-        .trim();
-
-}
+//     .trim();
+// }
