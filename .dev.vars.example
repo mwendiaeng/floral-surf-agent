@@ -1,0 +1,27 @@
+# Local development secrets (copy to .dev.vars — never commit .dev.vars)
+# wrangler loads .dev.vars automatically during `wrangler dev`
+
+# LLM_PROVIDER=openai
+# LLM_MODEL=gpt-4o-mini
+# OPENAI_API_KEY=sk-...
+# OPENAI_BASE_URL=https://api.openai.com/v1
+
+# LLM_PROVIDER=anthropic
+# LLM_MODEL=claude-sonnet-4-20250514
+# ANTHROPIC_API_KEY=sk-ant-...
+
+# Optional fallback when primary provider is unavailable
+# LLM_FALLBACK_PROVIDER=workers-ai
+# LLM_FALLBACK_MODEL=@cf/moonshotai/kimi-k2.6
+
+# Sampling overrides
+# LLM_TEMPERATURE=0.7
+# LLM_MAX_TOKENS=4096
+# LLM_TOP_P=1
+
+# External data stores (used by state store adapters when wired)
+# DATABASE_URL=postgresql://user:pass@host:5432/db
+# REDIS_URL=redis://localhost:6379
+
+# Default MCP servers (JSON array, non-secret URLs)
+# MCP_SERVERS=[{"name":"docs","url":"https://docs.example.com/mcp"}]
