@@ -35,7 +35,7 @@
     "fast-xml-parser": "^5.9.3",
     "ipaddr.js": "^2.4.0",
     "jsdom": "^29.1.1",
-    "pdfjs-dist": "^6.1.200",
+    "pdfjs-dist": "^6.2.108",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "streamdown": "^2.5.0",
